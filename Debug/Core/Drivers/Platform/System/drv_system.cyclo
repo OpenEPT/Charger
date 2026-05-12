@@ -1,0 +1,3 @@
+../Core/Drivers/Platform/System/drv_system.c:60:28:prvDRV_SYSTEM_CLOCK_Init	4
+../Core/Drivers/Platform/System/drv_system.c:125:21:DRV_SYSTEM_InitCoreFunc	3
+../Core/Drivers/Platform/System/drv_system.c:141:21:DRV_SYSTEM_InitDrivers	6

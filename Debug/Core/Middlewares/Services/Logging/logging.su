@@ -1,0 +1,5 @@
+../Core/Middlewares/Services/Logging/logging.c:102:25:prvLOGGING_InitChannels	16	static
+../Core/Middlewares/Services/Logging/logging.c:125:25:prvLOGGING_SendLogMessage	16	static
+../Core/Middlewares/Services/Logging/logging.c:153:13:prvLOGGING_TaskFunc	320	static
+../Core/Middlewares/Services/Logging/logging.c:187:18:LOGGING_Init	24	static
+../Core/Middlewares/Services/Logging/logging.c:213:19:LOGGING_Write	336	static

@@ -1,0 +1,7 @@
+../Core/Middlewares/Services/System/system.c:94:13:prvBUTTON_Callback	1
+../Core/Middlewares/Services/System/system.c:112:13:prvSYSTEM_Task	9
+../Core/Middlewares/Services/System/system.c:196:17:SYSTEM_Init	4
+../Core/Middlewares/Services/System/system.c:224:17:SYSTEM_Start	3
+../Core/Middlewares/Services/System/system.c:242:17:SYSTEM_ReportError	1
+../Core/Middlewares/Services/System/system.c:256:17:SYSTEM_SetDeviceName	4
+../Core/Middlewares/Services/System/system.c:275:17:SYSTEM_GetDeviceName	3

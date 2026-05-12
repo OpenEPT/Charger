@@ -1,0 +1,6 @@
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:82:22:DRV_USB_CDC_Init	2
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:98:22:DRV_USB_CDC_TransferData	10
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:127:22:DRV_USB_CDC_RegisterRxCallback	1
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:134:9:DRV_USB_CDC_IsConnected	1
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:139:6:DRV_USB_CDC_RxDataAvailable	2
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:146:6:DRV_USB_CDC_SetLineState	1

@@ -1,0 +1,7 @@
+../Core/Middlewares/Services/Control/CMParse/cmparse.c:16:24:prvCMPARSE_FindCallback	24	static
+../Core/Middlewares/Services/Control/CMParse/cmparse.c:35:25:prvCMPARSE_GetArguments	48	static
+../Core/Middlewares/Services/Control/CMParse/cmparse.c:78:18:CMPARSE_Init	8	static
+../Core/Middlewares/Services/Control/CMParse/cmparse.c:86:18:CMPARSE_AddCommand	24	static
+../Core/Middlewares/Services/Control/CMParse/cmparse.c:107:19:CMPARSE_Execute	144	static
+../Core/Middlewares/Services/Control/CMParse/cmparse.c:130:11:CMPARSE_GetArgParameters	32	static
+../Core/Middlewares/Services/Control/CMParse/cmparse.c:166:19:CMPARSE_GetArgValue	240	static
