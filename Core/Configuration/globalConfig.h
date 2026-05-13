@@ -82,7 +82,7 @@
 #define	CONF_CONTROL_STATUS_LINK_MESSAGES_MAX_NO	10
 /* Charger service */
 #define CONF_CHARGER_TASK_NAME					"Charger Task"
-#define	CONF_CHARGER_STACK_SIZE					256
+#define	CONF_CHARGER_STACK_SIZE					4096
 #define	CONF_CHARGER_PRIO						3
 
 /* Logging service */

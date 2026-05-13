@@ -159,7 +159,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
 		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.Priority 			= DMA_PRIORITY_HIGH;
 		if (HAL_DMA_Init(&prvDRV_AIN_DEVICE_DMA_HANDLER) != HAL_OK)
 		{
-		  Error_Handler();
+		  return;
 		}
 
 		__HAL_LINKDMA(&prvDRV_AIN_DEVICE_ADC_HANDLER, DMA_Handle, prvDRV_AIN_DEVICE_DMA_HANDLER);

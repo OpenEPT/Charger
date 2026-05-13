@@ -67,7 +67,7 @@ static drv_system_status_t prvDRV_SYSTEM_CLOCK_Init(void)
 	*/
 	if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
 	{
-	Error_Handler();
+	return;
 	}
 
 	/** Initializes the RCC Oscillators according to the specified parameters
@@ -85,7 +85,7 @@ static drv_system_status_t prvDRV_SYSTEM_CLOCK_Init(void)
 	RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
 	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
 	{
-		Error_Handler();
+		return;
 	}
 
 	/** Initializes the CPU, AHB and APB buses clocks
@@ -99,7 +99,7 @@ static drv_system_status_t prvDRV_SYSTEM_CLOCK_Init(void)
 
 	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
 	{
-		Error_Handler();
+		return;
 	}
 	return DRV_SYSTEM_STATUS_OK;
 }

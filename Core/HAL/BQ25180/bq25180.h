@@ -10,7 +10,7 @@
  * 			All BQ25180 driver interface functions, defines, and types are
  * 			declared in this header file.
  *
- * @author	Dimitrije Lilic
+ * @author	Dimitrije Lilic, Haris Turkmanovic
  * @date	April 2026
  ******************************************************************************
  */
@@ -31,18 +31,20 @@
  * @defgroup BQ25180_PUBLIC_DEFINES BQ25180 driver public defines
  * @{
  */
-#define BQ25180_MASK_VIN_PGOOD             0x0001		/*!< VIN power good status mask */
-#define BQ25180_MASK_THERMREG_ACTIVE       0x0002		/*!< Thermal regulation active mask */
-#define BQ25180_MASK_VINDPM_ACTIVE         0x0008		/*!< VIN DPM (Dynamic Power Management) active mask */
-//#define BQ25180_MASK_VDPPM_ACTIVE          0x0008		/*!< VDPM active mask */
-#define BQ25180_MASK_CHARGE_STATUS_CHANGED 0x0004		/*!< Charge termination done mask */
-#define BQ25180_MASK_TS_HOT                0x0100		/*!< Temperature sensor hot condition mask */
-#define BQ25180_MASK_TS_WARM               0x0200		/*!< Temperature sensor warm condition mask */
-#define BQ25180_MASK_TS_COOL               0x0400		/*!< Temperature sensor cool condition mask */
-#define BQ25180_MASK_TS_COLD               0x0800		/*!< Temperature sensor cold condition mask */
-#define BQ25180_MASK_BAT_UVLO_FAULT        0x1000		/*!< Battery under-voltage lockout fault mask */
-#define BQ25180_MASK_BAT_OCP_FAULT         0x2000		/*!< Battery over-current protection fault mask */
-#define BQ25180_MASK_VIN_OVP_FAULT         0x8000		/*!< VIN over-voltage protection fault mask */
+#define BQ25180_MASK_VIN_PGOOD             0x0001      /*!< VIN input power good status flag */
+#define BQ25180_MASK_THERMREG_ACTIVE       0x0002      /*!< Thermal regulation active status flag */
+#define BQ25180_MASK_CHARGE_STATUS_CHANGED 0x0004      /*!< Charging status changed interrupt flag */
+#define BQ25180_MASK_VINDPM_ACTIVE         0x0008      /*!< VIN dynamic power management active flag */
+//#define BQ25180_MASK_VDPPM_ACTIVE         0x0008      /*!< VDPPM active status flag */
+
+#define BQ25180_MASK_TS_HOT                0x0100      /*!< TS pin hot temperature condition flag */
+#define BQ25180_MASK_TS_WARM               0x0200      /*!< TS pin warm temperature condition flag */
+#define BQ25180_MASK_TS_COOL               0x0400      /*!< TS pin cool temperature condition flag */
+#define BQ25180_MASK_TS_COLD               0x0800      /*!< TS pin cold temperature condition flag */
+
+#define BQ25180_MASK_BAT_UVLO_FAULT        0x1000      /*!< Battery under-voltage lockout fault flag */
+#define BQ25180_MASK_BAT_OCP_FAULT         0x2000      /*!< Battery over-current protection fault flag */
+#define BQ25180_MASK_VIN_OVP_FAULT         0x8000      /*!< VIN over-voltage protection fault flag */
 /**
  * @}
  */
@@ -95,28 +97,37 @@ typedef enum
 }bq25180_ilim_value_t;
 
 
+/**
+ * @brief BQ25180 termination current values
+ */
 typedef enum
 {
-	BQ25180_TCURRENT_VALUE_DISABLED 	= 0,
-	BQ25180_TCURRENT_VALUE_5 			= 1,
-	BQ25180_TCURRENT_VALUE_10 			= 2,
-	BQ25180_TCURRENT_VALUE_20 			= 3
+    BQ25180_TCURRENT_VALUE_DISABLED     = 0,    /*!< Termination current disabled */
+    BQ25180_TCURRENT_VALUE_5            = 1,    /*!< Termination current 5mA */
+    BQ25180_TCURRENT_VALUE_10           = 2,    /*!< Termination current 10mA */
+    BQ25180_TCURRENT_VALUE_20           = 3     /*!< Termination current 20mA */
 }bq25180_tcurrent_value_t;
 
+/**
+ * @brief BQ25180 safety timer configuration values
+ */
 typedef enum
 {
-	BQ25180_STIMER_VALUE_3H 			= 0,
-	BQ25180_STIMER_VALUE_6H 			= 1,
-	BQ25180_STIMER_VALUE_12H 			= 2,
-	BQ25180_STIMER_VALUE_DISABLED 		= 3
+    BQ25180_STIMER_VALUE_3H             = 0,    /*!< Safety timer 3 hours */
+    BQ25180_STIMER_VALUE_6H             = 1,    /*!< Safety timer 6 hours */
+    BQ25180_STIMER_VALUE_12H            = 2,    /*!< Safety timer 12 hours */
+    BQ25180_STIMER_VALUE_DISABLED       = 3     /*!< Safety timer disabled */
 }bq25180_stimer_value_t;
 
+/**
+ * @brief BQ25180 charging state values
+ */
 typedef enum
 {
-	BQ25180_CHARGING_STATUS_NOT 		= 0,
-	BQ25180_CHARGING_STATUS_CC 			= 1,
-	BQ25180_CHARGING_STATUS_CV 			= 2,
-	BQ25180_CHARGING_STATUS_DONE 		= 3
+    BQ25180_CHARGING_STATUS_NOT         = 0,    /*!< Charging not active */
+    BQ25180_CHARGING_STATUS_CC          = 1,    /*!< Constant current charging phase */
+    BQ25180_CHARGING_STATUS_CV          = 2,    /*!< Constant voltage charging phase */
+    BQ25180_CHARGING_STATUS_DONE        = 3     /*!< Charging completed */
 }bq25180_charging_status_t;
 
 /**
@@ -156,6 +167,12 @@ bq25180_status_t BQ25180_Ping(uint32_t timeout);
 bq25180_status_t BQ25180_GetChargerIntFlags(uint8_t* intFlags, uint32_t timeout);
 
 
+/**
+ * @brief Set charger safety timer state
+ * @param value: Safety timer configuration value. See ::bq25180_stimer_value_t
+ * @param timeout: Communication timeout in milliseconds
+ * @retval ::bq25180_status_t
+ */
 bq25180_status_t BQ25180_SetChargerTimerState(bq25180_stimer_value_t value, uint32_t timeout);
 
 
@@ -198,7 +215,9 @@ bq25180_status_t BQ25180_ILim_Set(bq25180_ilim_value_t value, uint32_t timeout);
  * @param	timeout: Communication timeout in milliseconds
  * @retval	::bq25180_status_t
  */
-bq25180_status_t BQ25180_Charge_SetStatus(bq25180_charge_status status, uint32_t timeout);
+bq25180_status_t BQ25180_Charge_ChargeStatus_Set(bq25180_charge_status status, uint32_t timeout);
+
+
 
 /**
  * @brief	Set charging current
@@ -279,6 +298,8 @@ bq25180_status_t BQ25180_RegCallback(bq25180_intcb cb);
  * @retval	::bq25180_status_t
  */
 bq25180_status_t BQ25180_ReadReg(uint8_t regAddr, uint8_t* data, uint32_t timeout);
+
+
 
 /**
  * @}

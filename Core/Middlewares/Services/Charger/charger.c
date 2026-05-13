@@ -45,7 +45,7 @@
 #define CHARGER_TASK_PROCESS_INT                      0x00000020 /**< Task flag: Process interrupt */
 
 #define CHARGER_DEFAULT_CURRENT_TERMINATION_VALUE     5      /**< Default termination current (%) */
-#define CHARGER_DEFAULT_VOLTAGE_TERMINATION_VALUE     4.35   /**< Default termination voltage (V) */
+#define CHARGER_DEFAULT_VOLTAGE_TERMINATION_VALUE     4.12   /**< Default termination voltage (V) */
 #define CHARGER_DEFAULT_CURRENT_CHARGING_VALUE        100    /**< Default charging current (mA) */
 #define CHARGER_DEFAULT_CURRENT_ILIM_VALUE            3      /**< Default input current limit (index value, e.g., 200 mA) */
 #define CHARGER_DEFAULT_CHARGING_STATE                0      /**< Default charging state (disabled) */
@@ -176,6 +176,9 @@ static void prvCHARGER_TaskFunc(void* pvParameters)
 				break;
 			}
 
+
+			BQ25180_GetChargerIntFlags(&prvCHARGER_DATA.chargerIntStatus, 1000);
+
 			intMask &= ~(BQ25180_MASK_CHARGE_STATUS_CHANGED);
 
 			if(BQ25180_SetChargerIntMask(intMask, 1000) != BQ25180_STATUS_OK)
@@ -201,7 +204,7 @@ static void prvCHARGER_TaskFunc(void* pvParameters)
 				break;
 			}
 
-			if(BQ25180_Charge_SetStatus(prvCHARGER_DATA.chargingInfo.chargingStatus, 1000) != BQ25180_STATUS_OK)
+			if(BQ25180_Charge_ChargeStatus_Set(prvCHARGER_DATA.chargingInfo.chargingStatus, 1000) != BQ25180_STATUS_OK)
 			{
 				prvCHARGER_DATA.state	= CHARGER_STATE_ERROR;
 				LOGGING_Write("Charger service", LOGGING_MSG_TYPE_ERROR,  "Unable to disable charger \r\n");
@@ -242,6 +245,38 @@ static void prvCHARGER_TaskFunc(void* pvParameters)
 				break;
 			}
 
+			if(BQ25180_Charge_ChargeStatus_Set(BQ25180_CHARGE_STATUS_ENABLE, 1000) != BQ25180_STATUS_OK)
+			{
+				prvCHARGER_DATA.state	= CHARGER_STATE_ERROR;
+				LOGGING_Write("Charger service", LOGGING_MSG_TYPE_ERROR,  "Unable to enable charger \r\n");
+				break;
+			}
+//			uint8_t regAddr;
+//			uint8_t regData[12];
+//
+//			memset(regData, 0, 12);
+//
+//			LOGGING_Write("Charger service", LOGGING_MSG_TYPE_INFO,  "BQ25180 register dump:\r\n");
+//
+//			for(regAddr = 0; regAddr <= 0x0C; regAddr++)
+//			{
+//				if(BQ25180_ReadReg(regAddr, &regData[regAddr], 1000) == BQ25180_STATUS_OK)
+//				{
+//					LOGGING_Write("Charger service",
+//								  LOGGING_MSG_TYPE_INFO,
+//								  "REG[0x%02X] = 0x%02X\r\n",
+//								  regAddr,
+//								  regData);
+//				}
+//				else
+//				{
+//					LOGGING_Write("Charger service",
+//								  LOGGING_MSG_TYPE_ERROR,
+//								  "Unable to read REG[0x%02X]\r\n",
+//								  regAddr);
+//				}
+//			}
+
 			LOGGING_Write("Charger service", LOGGING_MSG_TYPE_INFO,  "Charger successfully initialized \r\n");
 
 			prvCHARGER_DATA.state	= CHARGER_STATE_SERVICE;
@@ -251,7 +286,7 @@ static void prvCHARGER_TaskFunc(void* pvParameters)
 			notifyValue = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 			if(notifyValue & CHARGER_TASK_SET_CHARGING_STATUS)
 			{
-				if(BQ25180_Charge_SetStatus(prvCHARGER_DATA.chargingInfo.chargingStatus, 1000) != BQ25180_STATUS_OK)
+				if(BQ25180_Charge_ChargeStatus_Set(prvCHARGER_DATA.chargingInfo.chargingStatus, 1000) != BQ25180_STATUS_OK)
 				{
 					LOGGING_Write("Charger service", LOGGING_MSG_TYPE_ERROR,  "Unable to set charging status \r\n");
 				}
@@ -358,7 +393,7 @@ charger_status_t 	CHARGER_Init(uint32_t initTimeout)
 	if(prvCHARGER_DATA.guard == NULL) return CHARGER_STATUS_ERROR;
 
 	prvCHARGER_DATA.chargingInfo.chargingCurrent 	= CHARGER_DEFAULT_CURRENT_CHARGING_VALUE;
-	prvCHARGER_DATA.chargingInfo.terminationCurrent = BQ25180_TCURRENT_VALUE_10;
+	prvCHARGER_DATA.chargingInfo.terminationCurrent = BQ25180_TCURRENT_VALUE_20;
 	prvCHARGER_DATA.chargingInfo.terminationVoltage = CHARGER_DEFAULT_VOLTAGE_TERMINATION_VALUE;
 	prvCHARGER_DATA.chargingInfo.currentLimit 		= BQ25180_ILIM_VALUE_300;
 	prvCHARGER_DATA.chargingInfo.chargingStatus 	= CHARGER_DEFAULT_CHARGING_STATE;

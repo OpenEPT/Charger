@@ -29,6 +29,7 @@ RM := rm -rf
 -include Core/Drivers/Platform/USB_CDC/subdir.mk
 -include Core/Drivers/Platform/UART/subdir.mk
 -include Core/Drivers/Platform/System/subdir.mk
+-include Core/Drivers/Platform/Interrupts/subdir.mk
 -include Core/Drivers/Platform/I2C/subdir.mk
 -include Core/Drivers/Platform/GPIO/subdir.mk
 -include Core/Drivers/Platform/AnalogIN/subdir.mk

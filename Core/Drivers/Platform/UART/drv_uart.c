@@ -103,7 +103,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 	    PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
 	    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
 	    {
-	      Error_Handler();
+	      return;
 	    }
 
 	    /* Peripheral clock enable */

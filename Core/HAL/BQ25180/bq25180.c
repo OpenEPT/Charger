@@ -9,7 +9,7 @@
  *          timer configuration, and register access for comprehensive charger
  *          management.
  *
- * @author  Dimitrije Lilic
+ * @author  Dimitrije Lilic, Haris Turkmanovic
  * @date    April 2026
  ******************************************************************************
  */
@@ -34,28 +34,30 @@
  * @defgroup BQ25180_PRIVATE_DEFINES BQ25180 driver defines and default values
  * @{
  */
-#define		BQ25180_CHARGE_EN_PORT		4             /**< GPIO port for charger enable pin */
-#define		BQ25180_CHARGE_EN_PIN		8             /**< GPIO pin for charger enable */
-#define		BQ25180_CHARGE_INT_PORT		4             /**< GPIO port for charger interrupt pin */
-#define		BQ25180_CHARGE_INT_PIN		7             /**< GPIO pin for charger interrupt */
-#define		BQ25180_CHARGE_INT_PRIO		5             /**< Priority level for charger interrupt */
+#define BQ25180_CHARGE_INT_PORT        0     	/*!< GPIO port used for BQ25180 interrupt signal */
+#define BQ25180_CHARGE_INT_PIN         4       /*!< GPIO pin used for BQ25180 interrupt signal */
+#define BQ25180_CHARGE_INT_PRIO        5       /*!< Interrupt priority for BQ25180 interrupt line */
 
-#define 	BQ25180_DEV_ADDR			0x6A          /**< I2C device address for BQ25180 */
-#define 	BQ25180_DEV_ID				0x04          /**< Device ID for BQ25180 */
+#define BQ25180_DEV_ADDR               0x6A    /*!< BQ25180 I2C slave device address */
+#define BQ25180_DEV_ID                 0x04    /*!< Expected BQ25180 device identifier value */
 
-#define 	BQ25180_REG_STAT0			0x00          /**< Interrupt flag register 0 */
-#define 	BQ25180_REG_STAT1			0x01          /**< Interrupt flag register 0 */
-#define 	BQ25180_REG_IFLAG0			0x02          /**< Interrupt flag register 0 */
-#define 	BQ25180_REG_VBAT_CTRL		0x03          /**< Battery voltage control register */
-#define 	BQ25180_REG_ICHG_CTRL		0x04          /**< Charge current control register */
-#define 	BQ25180_REG_CHARGERCTRL0	0x05          /**< Charger control register 0 */
-#define		BQ25180_REG_CHARGERCTRL1	0x06          /**< Charger control register 1  (ILIM[2:0], ITERM[6:3]*/
-#define		BQ25180_REG_IC_CTRL			0x07          /**< Charger control register 1  (ILIM[2:0], ITERM[6:3]*/
-#define		BQ25180_REG_TMR_ILIM		0x08          /**< Charger control register 1  (ILIM[2:0], ITERM[6:3]*/
-#define		BQ25180_REG_SHIP_RST		0x09          /**< Charger control register 1  (ILIM[2:0], ITERM[6:3]*/
-#define		BQ25180_REG_SYS_REG		    0x0A          /**< Charger control register 1  (ILIM[2:0], ITERM[6:3]*/
-#define		BQ25180_REG_TS_CONTROL	    0x0B          /**< Charger control register 1  (ILIM[2:0], ITERM[6:3]*/
-#define 	BQ25180_REG_ID				0x0C          /**< Device ID register */
+#define BQ25180_REG_STAT0              0x00    /*!< Status register 0 */
+#define BQ25180_REG_STAT1              0x01    /*!< Status register 1 */
+#define BQ25180_REG_IFLAG0             0x02    /*!< Interrupt flag register 0 */
+
+#define BQ25180_REG_VBAT_CTRL          0x03    /*!< Battery regulation voltage control register */
+#define BQ25180_REG_ICHG_CTRL          0x04    /*!< Charge current control register */
+
+#define BQ25180_REG_CHARGERCTRL0       0x05    /*!< Charger control register 0 */
+#define BQ25180_REG_CHARGERCTRL1       0x06    /*!< Charger control register 1 */
+
+#define BQ25180_REG_IC_CTRL            0x07    /*!< Input current limit control register */
+#define BQ25180_REG_TMR_ILIM           0x08    /*!< Safety timer and input current limit register */
+#define BQ25180_REG_SHIP_RST           0x09    /*!< Ship mode and reset control register */
+#define BQ25180_REG_SYS_REG            0x0A    /*!< System configuration register */
+#define BQ25180_REG_TS_CONTROL         0x0B    /*!< Temperature sensing control register */
+
+#define BQ25180_REG_ID                 0x0C    /*!< Device identification register */
 /**
  * @}
  */
@@ -164,18 +166,9 @@ bq25180_status_t BQ25180_Init()
 	if(DRV_I2C_Instance_Init(DRV_I2C_INSTANCE_3, &config) != DRV_I2C_STATUS_OK)
 		return BQ25180_STATUS_ERROR;
 
-	/* Init Acqusition State Diode */
-	chargeEnPin.mode		 = DRV_GPIO_PIN_MODE_OUTPUT_PP;
-	chargeEnPin.pullState	 = DRV_GPIO_PIN_PULL_NOPULL;
-
-	if(DRV_GPIO_Port_Init(BQ25180_CHARGE_EN_PORT) != DRV_GPIO_STATUS_OK)
-		return BQ25180_STATUS_ERROR;
-	if(DRV_GPIO_Pin_Init(BQ25180_CHARGE_EN_PORT, BQ25180_CHARGE_EN_PIN, &chargeEnPin) != DRV_GPIO_STATUS_OK)
-		return BQ25180_STATUS_ERROR;
-
 	// Configure the pin for the button
 	drv_gpio_pin_init_conf_t button_pin_conf;
-	button_pin_conf.mode = DRV_GPIO_PIN_MODE_IT_RISING_FALLING;
+	button_pin_conf.mode = DRV_GPIO_PIN_MODE_IT_RISING;
 	button_pin_conf.pullState = DRV_GPIO_PIN_PULL_NOPULL;
 
 
@@ -437,7 +430,7 @@ bq25180_status_t BQ25180_SetChargerTimerState(bq25180_stimer_value_t value, uint
     return BQ25180_STATUS_OK;
 }
 
-bq25180_status_t BQ25180_Charge_SetStatus(bq25180_charge_status status, uint32_t timeout)
+bq25180_status_t BQ25180_Charge_ChargeStatus_Set(bq25180_charge_status status, uint32_t timeout)
 {
 	/**/
 	uint8_t regData = 0;
@@ -445,14 +438,14 @@ bq25180_status_t BQ25180_Charge_SetStatus(bq25180_charge_status status, uint32_t
 	/**/
 	if(status == BQ25180_CHARGE_STATUS_ENABLE)
 	{
-		regData &= ~0x01;
+		regData &= ~0x80;
 
 		if(prvBQ25180_WriteReg(BQ25180_REG_ICHG_CTRL, regData, 1, 1000)!= BQ25180_STATUS_OK) return BQ25180_STATUS_ERROR;
 
 	}
 	else
 	{
-		regData |= 0x01;
+		regData |= 0x80;
 
 		if(prvBQ25180_WriteReg(BQ25180_REG_ICHG_CTRL, regData, 1, 1000)!= BQ25180_STATUS_OK) return BQ25180_STATUS_ERROR;
 	}
@@ -471,6 +464,8 @@ bq25180_status_t BQ25180_ReadReg(uint8_t regAddr, uint8_t* data, uint32_t timeou
 {
     return prvBQ25180_ReadReg(regAddr, data, timeout);
 }
+
+
 
 /**
  * @}

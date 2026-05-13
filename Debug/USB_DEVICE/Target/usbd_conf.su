@@ -29,4 +29,4 @@
 ../USB_DEVICE/Target/usbd_conf.c:834:6:USBD_LL_Delay	16	static
 ../USB_DEVICE/Target/usbd_conf.c:844:7:USBD_static_malloc	16	static
 ../USB_DEVICE/Target/usbd_conf.c:855:6:USBD_static_free	16	static
-../USB_DEVICE/Target/usbd_conf.c:866:13:SystemClockConfig_Resume	8	static
+../USB_DEVICE/Target/usbd_conf.c:866:13:SystemClockConfig_Resume	4	static

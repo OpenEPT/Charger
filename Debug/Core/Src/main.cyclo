@@ -1,10 +1,1 @@
-../Core/Src/main.c:88:5:main	4
-../Core/Src/main.c:191:6:SystemClock_Config	4
-../Core/Src/main.c:251:6:PeriphCommonClock_Config	2
-../Core/Src/main.c:278:13:MX_ADC1_Init	4
-../Core/Src/main.c:345:13:MX_I2C3_Init	4
-../Core/Src/main.c:393:13:MX_TIM2_Init	7
-../Core/Src/main.c:454:13:MX_UART4_Init	2
-../Core/Src/main.c:489:13:MX_GPIO_Init	1
-../Core/Src/main.c:542:6:StartDefaultTask	1
-../Core/Src/main.c:559:6:Error_Handler	1
+../Core/Src/main.c:32:5:main	4

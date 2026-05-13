@@ -25,6 +25,7 @@ SUBDIRS := \
 Core/Drivers/Platform/AnalogIN \
 Core/Drivers/Platform/GPIO \
 Core/Drivers/Platform/I2C \
+Core/Drivers/Platform/Interrupts \
 Core/Drivers/Platform/System \
 Core/Drivers/Platform/UART \
 Core/Drivers/Platform/USB_CDC \
