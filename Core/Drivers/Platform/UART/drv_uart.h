@@ -64,7 +64,8 @@ typedef enum
  */
 typedef enum
 {
-	DRV_UART_INSTANCE_4	= 0,		/*!< UART4 instance */
+	DRV_UART_INSTANCE_2	= 0,		/*!< UART2 instance */
+	DRV_UART_INSTANCE_4	= 1,		/*!< UART4 instance */
 }drv_uart_instance_t;
 
 /**

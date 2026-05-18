@@ -107,7 +107,7 @@ static logging_status_t	prvLOGGING_InitChannels()
 	channelConfig.parityEnable = DRV_UART_PARITY_NONE;
 	channelConfig.stopBitNo	= DRV_UART_STOPBIT_1;
 
-	if(DRV_UART_Instance_Init(DRV_UART_INSTANCE_4, &channelConfig) != DRV_UART_STATUS_OK) return LOGGING_STATUS_ERROR;
+	if(DRV_UART_Instance_Init(DRV_UART_INSTANCE_2, &channelConfig) != DRV_UART_STATUS_OK) return LOGGING_STATUS_ERROR;
 	prvLOGGING_DATA.channelInitStatus = LOGGING_INITIALIZATION_STATUS_INIT;
 	return LOGGING_STATUS_OK;
 }
@@ -131,7 +131,7 @@ static logging_status_t prvLOGGING_SendLogMessage(uint8_t* buffer, uint32_t size
 	}
 
 	/*Send data over all channels */
-	if(DRV_UART_TransferData(DRV_UART_INSTANCE_4, buffer, size, LOGGING_TRANSMIT_TIMEOUT) != DRV_UART_STATUS_OK) return LOGGING_STATUS_ERROR;
+	if(DRV_UART_TransferData(DRV_UART_INSTANCE_2, buffer, size, LOGGING_TRANSMIT_TIMEOUT) != DRV_UART_STATUS_OK) return LOGGING_STATUS_ERROR;
 
 	return LOGGING_STATUS_OK;
 }

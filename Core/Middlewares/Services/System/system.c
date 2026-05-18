@@ -37,6 +37,7 @@
 
 
 #include "system.h"
+#include "usbd_cdc_if.h"
 
 /**
  * @defgroup SERVICES Service
@@ -126,7 +127,12 @@ static void prvSYSTEM_Task(void *argument)
 				prvSYSTEM_DATA.state = SYSTEM_STATE_ERROR;
 				break;
 			}
-
+//				uint8_t TxBUF[] = "HELLO\r\n";
+//				uint8_t TxBUFLen = sizeof(TxBUF);
+//				while(1) {
+//					CDC_Transmit_FS(TxBUF, TxBUFLen);
+//							  HAL_Delay(100);
+//				}
 			/* ---- Initialize application services ---- */
 			/* TODO: Uncomment as each service is implemented.*/
 
@@ -135,12 +141,12 @@ static void prvSYSTEM_Task(void *argument)
 			      prvSYSTEM_DATA.state = SYSTEM_STATE_ERROR;
 			      break;
 			  }
-
-			  if(CHARGER_Init(2000) != CHARGER_STATUS_OK)
-			  {
-			      prvSYSTEM_DATA.state = SYSTEM_STATE_ERROR;
-			      break;
-			  }
+//
+//			  if(CHARGER_Init(2000) != CHARGER_STATUS_OK)
+//			  {
+//			      prvSYSTEM_DATA.state = SYSTEM_STATE_ERROR;
+//			      break;
+//			  }
 
 			  if(CONTROL_Init(2000) != CONTROL_STATUS_OK)
 			  {

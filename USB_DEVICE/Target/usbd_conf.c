@@ -72,7 +72,20 @@ void HAL_PCD_MspInit(PCD_HandleTypeDef* pcdHandle)
   if(pcdHandle->Instance==USB_OTG_FS)
   {
   /* USER CODE BEGIN USB_OTG_FS_MspInit 0 */
-
+    RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+	PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
+	PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
+	PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_MSI;
+	PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
+	PeriphClkInit.PLLSAI1.PLLSAI1N = 24;
+	PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
+	PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV2;
+	PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
+	PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK;
+	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+	{
+	  Error_Handler();
+	}
   /* USER CODE END USB_OTG_FS_MspInit 0 */
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -221,7 +234,7 @@ void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd)
 
   if ( hpcd->Init.speed != PCD_SPEED_FULL)
   {
-    return;
+    Error_Handler();
   }
     /* Set Speed. */
   USBD_LL_SetSpeed((USBD_HandleTypeDef*)hpcd->pData, speed);
@@ -865,7 +878,7 @@ void USBD_static_free(void *p)
   */
 static void SystemClockConfig_Resume(void)
 {
-  //SystemClock_Config();
+  SystemClock_Config();
 }
 /* USER CODE END 5 */
 

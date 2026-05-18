@@ -67,6 +67,11 @@ static /*volatile*/	uint8_t 		data;                                             
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 
+	if(huart->Instance==USART2)
+	{
+		prvDRV_UART_CALLBACKS[DRV_UART_INSTANCE_2](data);
+		HAL_UART_Receive_IT(&prvDRV_UART_INSTANCES[DRV_UART_INSTANCE_2].deviceHandler, &data, 1);
+	}
 	if(huart->Instance == UART4)
 	{
 		prvDRV_UART_CALLBACKS[DRV_UART_INSTANCE_4](data);
@@ -75,6 +80,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 }
 
+void UART2_IRQHandler(void)
+{
+  /* USER CODE BEGIN UART2_IRQn 0 */
+
+  /* USER CODE END UART2_IRQn 0 */
+  HAL_UART_IRQHandler(&prvDRV_UART_INSTANCES[DRV_UART_INSTANCE_2].deviceHandler);
+  /* USER CODE BEGIN UART7_IRQn 1 */
+
+  /* USER CODE END UART7_IRQn 1 */
+}
 
 void UART4_IRQHandler(void)
 {
@@ -89,7 +104,7 @@ void UART4_IRQHandler(void)
 
 void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 {
-	 GPIO_InitTypeDef GPIO_InitStruct = {0};
+	  GPIO_InitTypeDef GPIO_InitStruct = {0};
 	  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 	  if(huart->Instance==UART4)
 	  {
@@ -126,6 +141,42 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 	    /* USER CODE END UART4_MspInit 1 */
 
 	  }
+	  if(huart->Instance==USART2)
+	  {
+	    /* USER CODE BEGIN UART4_MspInit 0 */
+
+	    /* USER CODE END UART4_MspInit 0 */
+
+	  /** Initializes the peripherals clock
+	  */
+	    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2;
+	    PeriphClkInit.Uart4ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
+	    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+	    {
+	      return;
+	    }
+
+	    /* Peripheral clock enable */
+	    __HAL_RCC_USART2_CLK_ENABLE();
+
+	    __HAL_RCC_GPIOA_CLK_ENABLE();
+	    /**UART4 GPIO Configuration
+	    PA2     ------> UART4_TX
+	    PA3     ------> UART4_RX
+	    */
+	    GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
+	    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+	    GPIO_InitStruct.Pull = GPIO_NOPULL;
+	    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+	    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+	    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+	    /* USER CODE BEGIN UART4_MspInit 1 */
+
+	    /* USER CODE END UART4_MspInit 1 */
+
+	  }
+
 }
 
 void HAL_USART_MspDeInit(UART_HandleTypeDef* huart)
@@ -169,7 +220,11 @@ drv_uart_status_t	DRV_UART_Instance_Init(drv_uart_instance_t instance, drv_uart_
 	case DRV_UART_INSTANCE_4:
 		prvDRV_UART_INSTANCES[instance].deviceHandler.Instance = UART4;
 		break;
+	case DRV_UART_INSTANCE_2:
+		prvDRV_UART_INSTANCES[instance].deviceHandler.Instance = USART2;
+		break;
 	}
+
 
 	/*TODO: Only baudrate is configurable*/
 	prvDRV_UART_INSTANCES[instance].deviceHandler.Init.BaudRate = config->baudRate;
