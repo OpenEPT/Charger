@@ -77,6 +77,15 @@ typedef enum{
 	CONTROL_LINK_STATE_UP			/*!< Link is up */
 }control_link_state_t;
 
+/**
+ * @brief Source transport of an incoming control message
+ */
+typedef enum
+{
+	CONTROL_SOURCE_USB  = 0,	/*!< Message received over USB CDC */
+	CONTROL_SOURCE_UART			/*!< Message received over UART4 */
+} control_source_t;
+
 typedef enum
 {
 	CONTROL_STATUS_MESSAGE_TYPE_INFO = 0,

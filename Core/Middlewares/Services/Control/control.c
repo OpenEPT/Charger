@@ -31,6 +31,7 @@
 //#include "dpcontrol.h"
 #include "charger.h"
 #include "drv_usb_cdc.h"
+#include "drv_uart.h"
 
 /**
  * @defgroup SERVICES Service
@@ -47,8 +48,9 @@
  */
 typedef struct
 {
-	uint8_t		data[CONTROL_BUFFER_SIZE];
-	uint32_t	length;
+	uint8_t				data[CONTROL_BUFFER_SIZE];
+	uint32_t			length;
+	control_source_t	source;
 } control_rx_packet_t;
 
 typedef struct
@@ -90,6 +92,14 @@ typedef struct
  */
 static control_data_t				prvCONTROL_DATA;
 static control_status_link_data_t	prvCONTROL_STATUS_LINK_DATA[CONTROL_STATUS_LINK_MAX_NO];
+
+/**
+ * @brief  Line accumulator for UART4.
+ *         Bytes are collected here until CR or LF is detected, then the
+ *         assembled frame is pushed to rxQueue and the buffer is reset.
+ */
+static uint8_t  prvCONTROL_UART4_LineBuf[CONTROL_BUFFER_SIZE];
+static uint32_t prvCONTROL_UART4_LineLen;
 /**
  * @}
  */
@@ -183,7 +193,7 @@ static void prvCONTROL_GetDeviceName(const char* arguments, uint16_t argumentsLe
 
 	*responseSize = 0;
 
-	if(SYSTEM_GetDeviceName(tmpDeviceName, &deviceNameSize) != SYSTEM_STATUS_OK  )
+	if(SYSTEM_GetDeviceName(tmpDeviceName, &deviceNameSize) != SYSTEM_STATUS_OK)
 	{
 		prvCONTROL_PrepareErrorResponse(response, responseSize);
 		return;
@@ -289,7 +299,7 @@ static void prvCONTROL_ChargingEnable(const char* arguments, uint16_t argumentsL
 	if(CHARGER_SetChargingState(CHARGER_CHARGING_ENABLE, 1000) == CHARGER_STATUS_OK)
 	{
 		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
-		LOGGING_Write("Control Service",  LOGGING_MSG_TYPE_INFO, "Charging successfully enabled\r\n");
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Charging successfully enabled\r\n");
 	}
 	else
 	{
@@ -343,7 +353,7 @@ static void prvCONTROL_ChargingGet(const char* arguments, uint16_t argumentsLeng
 	}
 	else
 	{
-		memset(chargingStateString, 0, sizeof(chargingStateString)/*10*/);
+		memset(chargingStateString, 0, sizeof(chargingStateString));
 		chargingStateStringLength = sprintf(chargingStateString, "%u", (int)chargingState);
 		prvCONTROL_PrepareOkResponse(response, responseSize, chargingStateString, chargingStateStringLength);
 	}
@@ -462,7 +472,7 @@ static void prvCONTROL_ChargingTermCurrentGet(const char* arguments, uint16_t ar
 	}
 	else
 	{
-		memset(chargingTermCurrentString, 0, sizeof(chargingTermCurrentString)/*10*/);
+		memset(chargingTermCurrentString, 0, sizeof(chargingTermCurrentString));
 		chargingTermCurrentStringLength = sprintf(chargingTermCurrentString, "%u", (int)chargingTermCurrent);
 		prvCONTROL_PrepareOkResponse(response, responseSize, chargingTermCurrentString, chargingTermCurrentStringLength);
 	}
@@ -521,7 +531,7 @@ static void prvCONTROL_ChargingTermVoltageGet(const char* arguments, uint16_t ar
 	}
 	else
 	{
-		memset(chargingTermVoltageString, 0, sizeof(chargingTermVoltageString)/*10*/);
+		memset(chargingTermVoltageString, 0, sizeof(chargingTermVoltageString));
 		chargingTermVoltageStringLength = sprintf(chargingTermVoltageString, "%.2f", chargingTermVoltage);
 		prvCONTROL_PrepareOkResponse(response, responseSize, chargingTermVoltageString, chargingTermVoltageStringLength);
 	}
@@ -538,7 +548,7 @@ static void prvCONTROL_ChargingTermVoltageGet(const char* arguments, uint16_t ar
 static void prvCONTROL_ChargerReadReg(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
 {
 	cmparse_value_t				value;
-	unsigned int/*uint32_t*/	regAddr;
+	unsigned int				regAddr;
 	uint8_t						regVal;
 	char						responseContent[50];
 	uint32_t					responseContentSize;
@@ -555,9 +565,9 @@ static void prvCONTROL_ChargerReadReg(const char* arguments, uint16_t argumentsL
 	{
 		responseContentSize = 0;
 		memset(responseContent, 50, 0);
-		responseContentSize = sprintf(responseContent, "OK: 0x%x",regVal);
+		responseContentSize = sprintf(responseContent, "OK: 0x%x", regVal);
 		prvCONTROL_PrepareOkResponse(response, responseSize, responseContent, responseContentSize);
-		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Reg  %d successfully read\r\n", regAddr);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Reg %d successfully read\r\n", regAddr);
 	}
 	else
 	{
@@ -603,7 +613,7 @@ static void prvCONTROL_ChargerReadReg(const char* arguments, uint16_t argumentsL
  * 			len: length of data
  * @retval	void
  */
-static void prvCONTROL_RxCallback(uint8_t* data, uint32_t len)
+static void prvCONTROL_USBRxCallback(uint8_t* data, uint32_t len)
 {
 	control_rx_packet_t pkt;
 	BaseType_t higherPriorityTaskWoken = pdFALSE;
@@ -615,12 +625,80 @@ static void prvCONTROL_RxCallback(uint8_t* data, uint32_t len)
 	memset(&pkt, 0, sizeof(control_rx_packet_t));
 	memcpy(pkt.data, data, len);
 	pkt.length = len;
+	pkt.source = CONTROL_SOURCE_USB;
 
 	xQueueSendFromISR(prvCONTROL_DATA.rxQueue, &pkt, &higherPriorityTaskWoken);
 	portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
+/**
+ * @brief	UART4 receive complete callback entry point.
+ *
+ * 			Call this from HAL_UART_RxCpltCallback when huart->Instance == UART4.
+ *
+ * 			Strategy: HAL is configured for 1-byte interrupt receive.  This
+ * 			function accumulates bytes into a line buffer.  When CR or LF is
+ * 			received (or the buffer is full) the assembled frame is posted to
+ * 			the shared rxQueue and the accumulator is reset.  The ISR is then
+ * 			re-armed for the next byte.
+ *
+ * @retval	void
+ */
+static void prvCONTROL_UART4_RxCallback(uint8_t byte)
+{
+	control_rx_packet_t pkt;
+	BaseType_t higherPriorityTaskWoken = pdFALSE;
+
+	if(byte == '\r' || byte == '\n')
+	{
+		/* End of line — only dispatch if we accumulated something */
+		if(prvCONTROL_UART4_LineLen > 0)
+		{
+			memset(&pkt, 0, sizeof(control_rx_packet_t));
+			memcpy(pkt.data, prvCONTROL_UART4_LineBuf, prvCONTROL_UART4_LineLen);
+			pkt.length = prvCONTROL_UART4_LineLen;
+			pkt.source = CONTROL_SOURCE_UART;
+
+			xQueueSendFromISR(prvCONTROL_DATA.rxQueue, &pkt, &higherPriorityTaskWoken);
+
+			/* Reset accumulator */
+			memset(prvCONTROL_UART4_LineBuf, 0, CONTROL_BUFFER_SIZE);
+			prvCONTROL_UART4_LineLen = 0;
+
+			portYIELD_FROM_ISR(higherPriorityTaskWoken);
+		}
+	}
+	else
+	{
+		/* Accumulate byte; discard silently if buffer would overflow */
+		if(prvCONTROL_UART4_LineLen < CONTROL_BUFFER_SIZE)
+		{
+			prvCONTROL_UART4_LineBuf[prvCONTROL_UART4_LineLen] = byte;
+			prvCONTROL_UART4_LineLen += 1;
+		}
+		else
+		{
+			/* Buffer overflow — discard and reset */
+			memset(prvCONTROL_UART4_LineBuf, 0, CONTROL_BUFFER_SIZE);
+			prvCONTROL_UART4_LineLen = 0;
+		}
+	}
+}
+
+static control_status_t	prvCONTROL_InitUART()
+{
+	drv_uart_config_t channelConfig;
+
+	channelConfig.baudRate = 115200;
+	channelConfig.parityEnable = DRV_UART_PARITY_NONE;
+	channelConfig.stopBitNo	= DRV_UART_STOPBIT_1;
+
+	if(DRV_UART_Instance_Init(DRV_UART_INSTANCE_4, &channelConfig) != DRV_UART_STATUS_OK) return CONTROL_STATUS_ERROR;
+	return CONTROL_STATUS_OK;
+}
+
 drv_usb_cdc_status_t	DRV_USB_CDC_RegisterRxCallback(drv_usb_cdc_rx_isr_callback rxcb);
+
 /**
  * @brief	Main control service task
  * @param	pvParameter: value forwarded during task creation
@@ -630,7 +708,8 @@ static void prvCONTROL_TaskFunc(void* pvParameter)
 {
 	control_rx_packet_t pkt;
 
-	DRV_USB_CDC_RegisterRxCallback(prvCONTROL_RxCallback);
+	DRV_USB_CDC_RegisterRxCallback(prvCONTROL_USBRxCallback);
+	DRV_UART_Instance_RegisterRxCallback(DRV_UART_INSTANCE_4, prvCONTROL_UART4_RxCallback);
 
 	prvCONTROL_DATA.state = CONTROL_STATE_SERVICE;
 	xSemaphoreGive(prvCONTROL_DATA.initSig);
@@ -650,14 +729,30 @@ static void prvCONTROL_TaskFunc(void* pvParameter)
 
 		CMPARSE_Execute(prvCONTROL_DATA.requestBuffer, prvCONTROL_DATA.responseBuffer, &prvCONTROL_DATA.responseBufferSize);
 
-		if(prvCONTROL_DATA.responseBufferSize > 0 && DRV_USB_CDC_IsConnected())
+		if(prvCONTROL_DATA.responseBufferSize != 0)
 		{
-			DRV_USB_CDC_TransferData((uint8_t*)prvCONTROL_DATA.responseBuffer,
-					prvCONTROL_DATA.responseBufferSize, 1000);
+			/* Route response back through the originating transport */
+			switch(pkt.source)
+			{
+				case CONTROL_SOURCE_USB:
+					if(DRV_USB_CDC_IsConnected())
+					{
+						DRV_USB_CDC_TransferData(
+							(uint8_t*)prvCONTROL_DATA.responseBuffer,
+							prvCONTROL_DATA.responseBufferSize,
+							1000);
+					}
+					break;
+
+				case CONTROL_SOURCE_UART:
+					DRV_UART_TransferData(DRV_UART_INSTANCE_4, (uint8_t*)prvCONTROL_DATA.responseBuffer, prvCONTROL_DATA.responseBufferSize, 1000);
+					break;
+
+				default:
+					break;
+			}
 		}
-
 	}
-
 }
 /**
  * @brief	Status link task
@@ -693,6 +788,16 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 
 	memset(&prvCONTROL_DATA, 0, sizeof(control_data_t));
 	prvCONTROL_DATA.state = CONTROL_STATE_INIT;
+
+	/* Init UART4 line accumulator */
+	memset(prvCONTROL_UART4_LineBuf, 0, CONTROL_BUFFER_SIZE);
+	prvCONTROL_UART4_LineLen  = 0;
+
+	if(prvCONTROL_InitUART() != CONTROL_STATUS_OK)
+	{
+		prvCONTROL_DATA.state	= CONTROL_STATUS_ERROR;
+		return CONTROL_STATUS_ERROR;
+	}
 
 	prvCONTROL_DATA.initSig = xSemaphoreCreateBinary();
 	if(prvCONTROL_DATA.initSig == NULL) return CONTROL_STATUS_ERROR;
