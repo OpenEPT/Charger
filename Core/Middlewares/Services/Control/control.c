@@ -32,7 +32,10 @@
 #include "charger.h"
 #include "drv_usb_cdc.h"
 #include "drv_uart.h"
+#include "fsystem.h"
+#include "configuration.h"
 
+//extern UART_HandleTypeDef huart4;
 /**
  * @defgroup SERVICES Service
  * @{
@@ -92,6 +95,12 @@ typedef struct
  */
 static control_data_t				prvCONTROL_DATA;
 static control_status_link_data_t	prvCONTROL_STATUS_LINK_DATA[CONTROL_STATUS_LINK_MAX_NO];
+
+/**
+ * @brief  Single-byte UART4 receive staging byte.
+ *         HAL re-arms the ISR into this buffer after every received character.
+ */
+static uint8_t  prvCONTROL_UART4_RxByte;
 
 /**
  * @brief  Line accumulator for UART4.
@@ -162,6 +171,48 @@ static void inline prvCONTROL_PrepareOkResponse(char* response, uint16_t* respon
 	tmpResponsePtr	+= 2;
 	*responseSize	+= 2;
 }
+
+static void inline prvCONTROL_PrepareOkResponseBin(char* response, uint16_t* responseSize, char* msg, uint32_t msgSize)
+{
+    uint32_t tmpIncreaseSize = 0;
+    char* tmpResponsePtr = response;
+
+    /* OK */
+    tmpIncreaseSize = strlen(CONTROL_RESPONSE_OK_STATUS_MSG);
+    memcpy(tmpResponsePtr, CONTROL_RESPONSE_OK_STATUS_MSG, tmpIncreaseSize);
+    tmpResponsePtr += tmpIncreaseSize;
+    *responseSize += tmpIncreaseSize;
+
+    /* space */
+    memcpy(tmpResponsePtr, " ", 1);
+    tmpResponsePtr += 1;
+    *responseSize += 1;
+
+    /* B */
+    memcpy(tmpResponsePtr, "B", 1);
+    tmpResponsePtr += 1;
+    *responseSize += 1;
+
+    /* === SIZE (2 bytes, big-endian) === */
+    uint16_t payloadSize = (uint16_t)msgSize;
+
+    tmpResponsePtr[0] = (payloadSize >> 8) & 0xFF;
+    tmpResponsePtr[1] = (payloadSize >> 0) & 0xFF;
+
+    tmpResponsePtr += 2;
+    *responseSize += 2;
+
+    /* payload */
+    memcpy(tmpResponsePtr, msg, msgSize);
+    tmpResponsePtr += msgSize;
+    *responseSize += msgSize;
+
+    /* CRLF */
+    memcpy(tmpResponsePtr, "\r\n", 2);
+    tmpResponsePtr += 2;
+    *responseSize += 2;
+}
+
 /**
  * @brief	Get device name from system service
  * @param	arguments: arguments defined within control message
@@ -202,6 +253,7 @@ static void prvCONTROL_GetDeviceName(const char* arguments, uint16_t argumentsLe
 	prvCONTROL_PrepareOkResponse(response, responseSize, tmpDeviceName, deviceNameSize);
 	LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Device name successfully obtained\r\n");
 }
+
 /**
  * @brief	Set device name by utilazing system service
  * @param	arguments: arguments defined within control message
@@ -230,6 +282,7 @@ static void prvCONTROL_SetDeviceName(const char* arguments, uint16_t argumentsLe
 	prvCONTROL_PrepareOkResponse(response, responseSize, "", 0);
 	LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Device name successfully set\r\n");
 }
+
 
 /**
  * @brief	Set RGB color
@@ -577,6 +630,320 @@ static void prvCONTROL_ChargerReadReg(const char* arguments, uint16_t argumentsL
 	}
 }
 
+static void prvCONTROL_FSystemFormat(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    if(FSYSTEM_FormatBD(10000) == FSYSTEM_STATUS_OK)
+    {
+        prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "FSYSTEM BD format executed\r\n");
+    }
+    else
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "FSYSTEM BD format failed\r\n");
+    }
+}
+
+static void prvCONTROL_FSystemRead(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    cmparse_value_t value;
+    uint32_t offset;
+    uint32_t size;
+
+    static uint8_t readBuffer[FSYSTEM_BD_CHUNK_SIZE];
+    uint32_t readSize = 0;
+
+    memset(&value, 0, sizeof(cmparse_value_t));
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "offset", &value) != CMPARSE_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        return;
+    }
+    sscanf(value.value, "%lu", &offset);
+
+    memset(&value, 0, sizeof(cmparse_value_t));
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "size", &value) != CMPARSE_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        return;
+    }
+    sscanf(value.value, "%lu", &size);
+
+    if(size > FSYSTEM_BD_CHUNK_SIZE)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        return;
+    }
+
+    if(FSYSTEM_ReadBDChunk(offset, (char*)readBuffer, size, &readSize, 2000) != FSYSTEM_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "FSYSTEM BD read failed\r\n");
+        return;
+    }
+
+    /* vracamo RAW podatke direktno */
+    prvCONTROL_PrepareOkResponseBin(response, responseSize, (char*)readBuffer, readSize);
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "FSYSTEM BD read OK (offset=%lu size=%lu)\r\n", offset, readSize);
+}
+
+static void prvCONTROL_FSystemWrite(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    cmparse_value_t value;
+    cmparse_value_bin_t valueBin;
+    uint32_t offset;
+    uint32_t size;
+
+    char* dataPtr;
+    uint32_t dataSize;
+
+    memset(&value, 0, sizeof(cmparse_value_t));
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "offset", &value) != CMPARSE_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        return;
+    }
+    sscanf(value.value, "%lu", &offset);
+
+    memset(&value, 0, sizeof(cmparse_value_t));
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "size", &value) != CMPARSE_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        return;
+    }
+    sscanf(value.value, "%lu", &size);
+
+    memset(&value, 0, sizeof(cmparse_value_t));
+    if(CMPARSE_GetArgValueBin(arguments, argumentsLength, "data", &valueBin, size) != CMPARSE_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        return;
+    }
+
+    dataPtr  = valueBin.value;
+    dataSize = valueBin.size;
+
+    if(dataSize != size)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "FSYSTEM BD write size mismatch\r\n");
+        return;
+    }
+
+    if(FSYSTEM_WriteBDChunk(offset, dataPtr, &dataSize, 0, 2000) != FSYSTEM_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "FSYSTEM BD write failed\r\n");
+        return;
+    }
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "FSYSTEM BD write OK (offset=%lu size=%lu)\r\n", offset, size);
+}
+static void prvCONTROL_FSystemBDSizeGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    uint32_t bdSize = FSYSTEM_BD_SIZE;
+
+    char sizeStr[16];
+    snprintf(sizeStr, sizeof(sizeStr), "%lu", bdSize);
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, sizeStr, strlen(sizeStr));
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "FSYSTEM BD size get: %lu\r\n", bdSize);
+}
+
+static void prvCONTROL_ParamCalGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    float vref, voff, vcor, coff, ccor;
+    uint8_t def;
+
+    char resp[128];
+    uint32_t respLen = 0;
+
+    if(CONFIGURATION_GetParameter_Float("CAL_V_REF", &vref, &def) != CONFIGURATION_STATUS_OK ||
+       CONFIGURATION_GetParameter_Float("CAL_V_OFF", &voff, &def) != CONFIGURATION_STATUS_OK ||
+       CONFIGURATION_GetParameter_Float("CAL_V_COR", &vcor, &def) != CONFIGURATION_STATUS_OK ||
+       CONFIGURATION_GetParameter_Float("CAL_C_OFF", &coff, &def) != CONFIGURATION_STATUS_OK ||
+       CONFIGURATION_GetParameter_Float("CAL_C_COR", &ccor, &def) != CONFIGURATION_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        return;
+    }
+
+    respLen = snprintf(resp, sizeof(resp),
+                       "VREF=%.6f VOFF=%.6f VCOR=%.6f COFF=%.6f CCOR=%.6f",
+                       vref, voff, vcor, coff, ccor);
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, resp, respLen);
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO,
+                  "Calibration parameters read: VREF=%.6f VOFF=%.6f VCOR=%.6f COFF=%.6f CCOR=%.6f\r\n",
+                  vref, voff, vcor, coff, ccor);
+}
+
+static void prvCONTROL_ParamCalSet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    cmparse_value_t value;
+
+    float vref, voff, vcor, coff, ccor;
+
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "vref", &value) != CMPARSE_STATUS_OK ||
+       sscanf(value.value, "%f", &vref) != 1)
+        goto error;
+
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "voff", &value) != CMPARSE_STATUS_OK ||
+       sscanf(value.value, "%f", &voff) != 1)
+        goto error;
+
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "vcor", &value) != CMPARSE_STATUS_OK ||
+       sscanf(value.value, "%f", &vcor) != 1)
+        goto error;
+
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "coff", &value) != CMPARSE_STATUS_OK ||
+       sscanf(value.value, "%f", &coff) != 1)
+        goto error;
+
+    if(CMPARSE_GetArgValue(arguments, argumentsLength, "ccor", &value) != CMPARSE_STATUS_OK ||
+       sscanf(value.value, "%f", &ccor) != 1)
+        goto error;
+
+
+    CONFIGURATION_SetParameter_Float("CAL_V_REF", vref, 1000);
+    CONFIGURATION_SetParameter_Float("CAL_V_OFF", voff, 1000);
+    CONFIGURATION_SetParameter_Float("CAL_V_COR", vcor, 1000);
+    CONFIGURATION_SetParameter_Float("CAL_C_OFF", coff, 1000);
+    CONFIGURATION_SetParameter_Float("CAL_C_COR", ccor, 1000);
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO,
+                  "Calibration parameters updated: VREF=%.6f VOFF=%.6f VCOR=%.6f COFF=%.6f CCOR=%.6f\r\n",
+                  vref, voff, vcor, coff, ccor);
+    return;
+
+error:
+    prvCONTROL_PrepareErrorResponse(response, responseSize);
+
+	LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR,
+				  "Invalid calibration parameters (parsing failed)\r\n");
+}
+
+static void prvCONTROL_ParamStore(const char* arguments,
+                                  uint16_t argumentsLength,
+                                  char* response,
+                                  uint16_t* responseSize)
+{
+    if(CONFIGURATION_StoreToFS(5000) != CONFIGURATION_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Configuration store to FS failed\r\n");
+        return;
+    }
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Configuration successfully stored to FS\r\n");
+}
+
+static void prvCONTROL_DeviceReset(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Device reset requested\r\n");
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    SYSTEM_Restart();
+}
+
+
+static void prvCONTROL_ParamShuntGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    float value;
+    uint8_t def;
+
+    if(CONFIGURATION_GetParameter_Float("SENS_SHUNT", &value, &def) != CONFIGURATION_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR,
+                      "Failed to read shunt parameter\r\n");
+        return;
+    }
+
+    char resp[32];
+    int len = snprintf(resp, sizeof(resp), "SHUNT=%.6f", value);
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, resp, len);
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO,
+                  "Shunt parameter read: SHUNT=%.6f\r\n", value);
+
+}
+static void prvCONTROL_GetFWVersion(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    char buffer[CONF_CONFIGURATION_MAX_PARAM_VALUESIZE];
+    uint32_t size = 0;
+
+    if(SYSTEM_GetFWVersion(buffer, &size) != SYSTEM_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR,
+                      "Unable to get FW version\r\n");
+        return;
+    }
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, buffer, size);
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO,
+                  "FW version read: %s\r\n", buffer);
+}
+static void prvCONTROL_GetHWSerial(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    char buffer[CONF_CONFIGURATION_MAX_PARAM_VALUESIZE];
+    uint32_t size = 0;
+
+    if(SYSTEM_GetDeviceSerial(buffer, &size) != SYSTEM_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR,
+                      "Unable to get HW serial\r\n");
+        return;
+    }
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, buffer, size);
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO,
+                  "HW serial read: %s\r\n", buffer);
+}
+
+static void prvCONTROL_ParamGainGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+    float value;
+    uint8_t def;
+
+    if(CONFIGURATION_GetParameter_Float("SENS_GAIN", &value, &def) != CONFIGURATION_STATUS_OK)
+    {
+        prvCONTROL_PrepareErrorResponse(response, responseSize);
+        LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR,
+                      "Failed to read gain parameter\r\n");
+        return;
+    }
+
+    char resp[32];
+    int len = snprintf(resp, sizeof(resp), "GAIN=%.6f", value);
+
+    prvCONTROL_PrepareOkResponse(response, responseSize, resp, len);
+
+
+    LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO,
+                  "Gain parameter read: GAIN=%.6f\r\n", value);
+}
 
 ////TODO: This function is introduced for testing purposes only. Remove it in production phase!
 ///**
@@ -694,6 +1061,7 @@ static control_status_t	prvCONTROL_InitUART()
 	channelConfig.stopBitNo	= DRV_UART_STOPBIT_1;
 
 	if(DRV_UART_Instance_Init(DRV_UART_INSTANCE_4, &channelConfig) != DRV_UART_STATUS_OK) return CONTROL_STATUS_ERROR;
+	//prvLOGGING_DATA.channelInitStatus = LOGGING_INITIALIZATION_STATUS_INIT;
 	return CONTROL_STATUS_OK;
 }
 
@@ -710,6 +1078,8 @@ static void prvCONTROL_TaskFunc(void* pvParameter)
 
 	DRV_USB_CDC_RegisterRxCallback(prvCONTROL_USBRxCallback);
 	DRV_UART_Instance_RegisterRxCallback(DRV_UART_INSTANCE_4, prvCONTROL_UART4_RxCallback);
+
+	//HAL_UART_Receive_IT(&huart4, &prvCONTROL_UART4_RxByte, 1);
 
 	prvCONTROL_DATA.state = CONTROL_STATE_SERVICE;
 	xSemaphoreGive(prvCONTROL_DATA.initSig);
@@ -835,6 +1205,21 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 	CMPARSE_AddCommand("charger charging termvoltage get",  prvCONTROL_ChargingTermVoltageGet);
 	CMPARSE_AddCommand("charger reg read",  				prvCONTROL_ChargerReadReg);
 
+	CMPARSE_AddCommand("device fsystem bd format", 			prvCONTROL_FSystemFormat);
+	CMPARSE_AddCommand("device fsystem bd read",   			prvCONTROL_FSystemRead);
+	CMPARSE_AddCommand("device fsystem bd write",  			prvCONTROL_FSystemWrite);
+	CMPARSE_AddCommand("device fsystem bd size get",  		prvCONTROL_FSystemBDSizeGet);
+
+
+	CMPARSE_AddCommand("device param cal get",  			prvCONTROL_ParamCalGet);
+	CMPARSE_AddCommand("device param cal set",  			prvCONTROL_ParamCalSet);
+	CMPARSE_AddCommand("device param shunt get",  			prvCONTROL_ParamShuntGet);
+	CMPARSE_AddCommand("device param gain get",  			prvCONTROL_ParamGainGet);
+
+	CMPARSE_AddCommand("device hwserial get",  				prvCONTROL_GetHWSerial);
+	CMPARSE_AddCommand("device swserial get",  				prvCONTROL_GetFWVersion);
+
+	CMPARSE_AddCommand("device param store",  				prvCONTROL_ParamStore);
 
 	if(xSemaphoreTake(prvCONTROL_DATA.initSig, pdMS_TO_TICKS(initTimeout)) != pdTRUE) return CONTROL_STATUS_ERROR;
 

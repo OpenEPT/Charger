@@ -136,6 +136,18 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout);
  * @param	timeout: timeout interval to wait for message to be sent over status link
  * @retval	::control_status_t
  */
+
+/**
+ * @brief	UART4 receive ISR entry point
+ *
+ * 			Call this from HAL_UART_RxCpltCallback when huart->Instance == UART4.
+ * 			Accumulates bytes into an internal line buffer and posts a complete
+ * 			packet to the control RX queue when CR/LF is detected.
+ *
+ * @retval	void
+ */
+void				CONTROL_UART4_RxISRCallback(void);
+
 control_status_t 	CONTROL_StatusLinkSendMessage(const char* message, contol_status_message_type_t msgType, uint32_t timeout);
 /**
  * @brief	Send status message over control link from ISR
