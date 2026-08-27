@@ -1,2 +1,0 @@
-../Core/Middlewares/Services/Configuration/configurationDef.c:70:24:CONFIGURATIONDEF_GetDefaults	4	static
-../Core/Middlewares/Services/Configuration/configurationDef.c:75:10:CONFIGURATIONDEF_GetDefaultsCount	4	static

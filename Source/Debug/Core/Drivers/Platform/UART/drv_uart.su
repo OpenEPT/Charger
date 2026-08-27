@@ -1,8 +1,0 @@
-../Core/Drivers/Platform/UART/drv_uart.c:67:6:HAL_UART_RxCpltCallback	16	static
-../Core/Drivers/Platform/UART/drv_uart.c:79:6:UART4_IRQHandler	8	static
-../Core/Drivers/Platform/UART/drv_uart.c:90:6:HAL_UART_MspInit	184	static
-../Core/Drivers/Platform/UART/drv_uart.c:131:6:HAL_USART_MspDeInit	16	static
-../Core/Drivers/Platform/UART/drv_uart.c:153:19:DRV_UART_Init	8	static
-../Core/Drivers/Platform/UART/drv_uart.c:159:19:DRV_UART_Instance_Init	24	static
-../Core/Drivers/Platform/UART/drv_uart.c:196:19:DRV_UART_TransferData	24	static
-../Core/Drivers/Platform/UART/drv_uart.c:209:19:DRV_UART_Instance_RegisterRxCallback	16	static

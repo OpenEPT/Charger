@@ -1,6 +1,0 @@
-../Core/Drivers/Platform/Timer/drv_timer.c:39:6:HAL_TIM_Base_MspInit	96	static
-../Core/Drivers/Platform/Timer/drv_timer.c:177:6:HAL_TIM_Base_MspDeInit	16	static
-../Core/Drivers/Platform/Timer/drv_timer.c:221:20:DRV_Timer_Init	8	static
-../Core/Drivers/Platform/Timer/drv_timer.c:228:20:DRV_Timer_Init_Instance	56	static
-../Core/Drivers/Platform/Timer/drv_timer.c:297:20:DRV_Timer_Channel_Init	56	static
-../Core/Drivers/Platform/Timer/drv_timer.c:326:20:DRV_Timer_Channel_PWM_Start	24	static
