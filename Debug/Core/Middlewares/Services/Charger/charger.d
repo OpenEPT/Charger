@@ -17,7 +17,9 @@ Core/Middlewares/Services/Charger/charger.o: \
  ../Core/Configuration/globalConfig.h \
  ../Core/Middlewares/Services/System/system.h \
  ../Core/Middlewares/Services/Logging/logging.h \
- ../Core/HAL/BQ25180/bq25180.h
+ ../Core/Middlewares/Services/Control/control.h \
+ ../Core/HAL/BQ25180/bq25180.h \
+ ../Core/Middlewares/Services/Configuration/configuration.h
 ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h:
 ../Core/Inc/FreeRTOSConfig.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h:
@@ -35,4 +37,6 @@ Core/Middlewares/Services/Charger/charger.o: \
 ../Core/Configuration/globalConfig.h:
 ../Core/Middlewares/Services/System/system.h:
 ../Core/Middlewares/Services/Logging/logging.h:
+../Core/Middlewares/Services/Control/control.h:
 ../Core/HAL/BQ25180/bq25180.h:
+../Core/Middlewares/Services/Configuration/configuration.h:

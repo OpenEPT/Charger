@@ -52,10 +52,7 @@ void 	HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 	if(i < DRV_GPIO_INTERRUPTS_MAX_NUMBER)
 	{
-		if(prvDRV_GPIO_PINS_INTERRUPTS[i] != NULL)
-		{
-			prvDRV_GPIO_PINS_INTERRUPTS[i](GPIO_Pin);
-		}
+		prvDRV_GPIO_PINS_INTERRUPTS[i](GPIO_Pin);
 	}
 }
 
@@ -214,7 +211,7 @@ drv_gpio_status_t DRV_GPIO_Pin_SetState(drv_gpio_port_t port, drv_gpio_pin pin, 
 
 	if(xSemaphoreTake(prvDRV_GPIO_PORTS[port].lock, portMAX_DELAY) == pdFALSE ) return DRV_GPIO_STATUS_ERROR;
 
-	HAL_GPIO_WritePin((GPIO_TypeDef*)prvDRV_GPIO_PORTS[port].portInstance, 1 << pin, (GPIO_PinState)state);
+	HAL_GPIO_WritePin((GPIO_TypeDef*)prvDRV_GPIO_PORTS[port].portInstance, 1 << pin, state);
 
 	if(xSemaphoreGive(prvDRV_GPIO_PORTS[port].lock) == pdFALSE ) return DRV_GPIO_STATUS_ERROR;
 
@@ -226,7 +223,7 @@ drv_gpio_status_t 		DRV_GPIO_Pin_SetStateFromISR(drv_gpio_port_t port, drv_gpio_
 	if(pin > DRV_GPIO_PIN_MAX_NUMBER) return DRV_GPIO_STATUS_ERROR;
 
 
-	HAL_GPIO_WritePin((GPIO_TypeDef*)prvDRV_GPIO_PORTS[port].portInstance, 1 << pin, (GPIO_PinState)state);
+	HAL_GPIO_WritePin((GPIO_TypeDef*)prvDRV_GPIO_PORTS[port].portInstance, 1 << pin, state);
 
 
 	return DRV_GPIO_STATUS_OK;
@@ -253,11 +250,11 @@ drv_gpio_status_t DRV_GPIO_Pin_ToggleFromISR(drv_gpio_port_t port, drv_gpio_pin 
 	if(prvDRV_GPIO_PORTS[port].initState != DRV_GPIO_PORT_INIT_STATUS_INITIALIZED || prvDRV_GPIO_PORTS[port].lock == NULL) return DRV_GPIO_STATUS_ERROR;
 	if(pin > DRV_GPIO_PIN_MAX_NUMBER) return DRV_GPIO_STATUS_ERROR;
 
-	//if(xSemaphoreTakeFromISR(prvDRV_GPIO_PORTS[port].lock, &pxHigherPriorityTaskWoken) == pdFALSE ) return DRV_GPIO_STATUS_ERROR;
+	if(xSemaphoreTakeFromISR(prvDRV_GPIO_PORTS[port].lock, &pxHigherPriorityTaskWoken) == pdFALSE ) return DRV_GPIO_STATUS_ERROR;
 
 	HAL_GPIO_TogglePin((GPIO_TypeDef*)prvDRV_GPIO_PORTS[port].portInstance, 1 << pin);
 
-	//if(xSemaphoreGiveFromISR(prvDRV_GPIO_PORTS[port].lock, &pxHigherPriorityTaskWoken) == pdFALSE ) return DRV_GPIO_STATUS_ERROR;
+	if(xSemaphoreGiveFromISR(prvDRV_GPIO_PORTS[port].lock, &pxHigherPriorityTaskWoken) == pdFALSE ) return DRV_GPIO_STATUS_ERROR;
 
 	return DRV_GPIO_STATUS_OK;
 }

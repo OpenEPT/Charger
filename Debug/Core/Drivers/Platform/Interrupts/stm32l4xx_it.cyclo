@@ -7,3 +7,4 @@
 ../Core/Drivers/Platform/Interrupts/stm32l4xx_it.c:159:6:SysTick_Handler	2
 ../Core/Drivers/Platform/Interrupts/stm32l4xx_it.c:188:6:OTG_FS_IRQHandler	1
 ../Core/Drivers/Platform/Interrupts/stm32l4xx_it.c:199:6:EXTI4_IRQHandler	1
+../Core/Drivers/Platform/Interrupts/stm32l4xx_it.c:204:6:EXTI9_5_IRQHandler	1

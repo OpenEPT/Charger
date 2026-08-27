@@ -56,6 +56,9 @@ Core/Middlewares/Services/System/system.o: \
  ../Core/Configuration/globalConfig.h \
  ../Core/Middlewares/Services/Charger/charger.h \
  ../Core/Middlewares/Services/Control/control.h \
+ ../Core/Middlewares/Services/Configuration/configuration.h \
+ ../Core/Drivers/Platform/Timer/drv_timer.h \
+ ../Core/Drivers/Platform/GPIO/drv_gpio.h \
  ../Core/Middlewares/Services/System/system.h
 ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h:
@@ -114,4 +117,7 @@ Core/Middlewares/Services/System/system.o: \
 ../Core/Configuration/globalConfig.h:
 ../Core/Middlewares/Services/Charger/charger.h:
 ../Core/Middlewares/Services/Control/control.h:
+../Core/Middlewares/Services/Configuration/configuration.h:
+../Core/Drivers/Platform/Timer/drv_timer.h:
+../Core/Drivers/Platform/GPIO/drv_gpio.h:
 ../Core/Middlewares/Services/System/system.h:

@@ -177,6 +177,14 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM
+  
+  .usb_ram (NOLOAD) :
+{
+    . = ALIGN(4);
+    *(.usb_ram)
+    *(.usb_ram*)
+    . = ALIGN(4);
+} >RAM2
 
   /* Remove information from the compiler libraries */
   /DISCARD/ :

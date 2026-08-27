@@ -62,12 +62,15 @@ static drv_system_status_t prvDRV_SYSTEM_CLOCK_Init(void)
 
 	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
 	RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+	RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+
+
 
 	/** Configure the main internal regulator output voltage
 	*/
 	if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1) != HAL_OK)
 	{
-	return;
+		return DRV_SYSTEM_STATUS_ERROR;
 	}
 
 	/** Initializes the RCC Oscillators according to the specified parameters
@@ -85,7 +88,7 @@ static drv_system_status_t prvDRV_SYSTEM_CLOCK_Init(void)
 	RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
 	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
 	{
-		return;
+		return DRV_SYSTEM_STATUS_ERROR;
 	}
 
 	/** Initializes the CPU, AHB and APB buses clocks
@@ -101,6 +104,23 @@ static drv_system_status_t prvDRV_SYSTEM_CLOCK_Init(void)
 	{
 		return;
 	}
+
+
+	PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
+	PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLLSAI1;
+	PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_HSI;
+	PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
+	PeriphClkInit.PLLSAI1.PLLSAI1N = 12;
+	PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
+	PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV4;
+	PeriphClkInit.PLLSAI1.PLLSAI1R = RCC_PLLR_DIV2;
+	PeriphClkInit.PLLSAI1.PLLSAI1ClockOut = RCC_PLLSAI1_48M2CLK;
+
+	if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+	{
+		return DRV_SYSTEM_STATUS_ERROR;
+	}
+
 	return DRV_SYSTEM_STATUS_OK;
 }
 
@@ -144,15 +164,9 @@ drv_system_status_t DRV_SYSTEM_InitDrivers(void)
 	if(DRV_I2C_Init()   != DRV_I2C_STATUS_OK)   return DRV_SYSTEM_STATUS_ERROR;
 	if(DRV_AIN_Init(DRV_AIN_ADC_1, NULL) != DRV_AIN_STATUS_OK) return DRV_SYSTEM_STATUS_ERROR;
 	if(DRV_UART_Init()  != DRV_UART_STATUS_OK)  return DRV_SYSTEM_STATUS_ERROR;
+	if(DRV_Timer_Init()  != DRV_UART_STATUS_OK)  return DRV_SYSTEM_STATUS_ERROR;
 	if(DRV_USB_CDC_Init()  != DRV_USB_CDC_STATUS_OK)  return DRV_SYSTEM_STATUS_ERROR;
 
-	/* TODO: Uncomment each line as the corresponding driver is implemented.
-	 *
-	 *
-	 *
-	 * if(DRV_Timer_Init() != DRV_TIMER_STATUS_OK) return DRV_SYSTEM_STATUS_ERROR;
-	 *
-	 */
 
 	return DRV_SYSTEM_STATUS_OK;
 }

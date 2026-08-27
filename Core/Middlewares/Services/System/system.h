@@ -65,6 +65,19 @@ typedef enum
 }system_state_t;
 
 /**
+ * @brief System operational states
+ */
+typedef enum
+{
+	SYSTEM_OPSTATE_OPERATIONAL,				/*!< System is in operational state */
+	SYSTEM_OPSTATE_CHARGING_CC,				/*!< System is in constant current charging state */
+	SYSTEM_OPSTATE_CHARGING_CV,				/*!< System is in constant voltage charging state */
+	SYSTEM_OPSTATE_CHARGING_INTERRUPTED,	/*!< System is in constant voltage charging state */
+	SYSTEM_OPSTATE_CHARGING_DONE,			/*!< Charging is done */
+	SYSTEM_OPSTATE_ERROR					/*!< Charging error */
+}system_opstate_t;
+
+/**
  * @brief System service return status
  */
 typedef enum
@@ -91,6 +104,16 @@ typedef enum
 	SYSTEM_LINK_STATUS_UP,			/*!< Link is established and active */
 	SYSTEM_LINK_STATUS_DOWN			/*!< Link is down or inactive */
 }system_link_status_t;
+
+/**
+ * @brief RGB color value structure
+ */
+typedef struct
+{
+	uint8_t red;					/*!< Red color component (0-255) */
+	uint8_t green;					/*!< Green color component (0-255) */
+	uint8_t blue;					/*!< Blue color component (0-255) */
+}system_rgb_value_t;
 
 /**
  * @}
@@ -121,6 +144,13 @@ system_status_t SYSTEM_Start(void);
 system_status_t SYSTEM_ReportError(system_error_level_t errorLevel);
 
 /**
+ * @brief	SSet system operational state
+ * @param	opState:: Operational state
+ * @retval	::system_status_t
+ */
+system_status_t SYSTEM_SetOpState(system_opstate_t opState);
+
+/**
  * @brief	Set the device name
  * @param	deviceName: Null-terminated string containing the device name
  * @retval	::system_status_t
@@ -135,6 +165,22 @@ system_status_t SYSTEM_SetDeviceName(const char* deviceName);
  * @retval	::system_status_t
  */
 system_status_t SYSTEM_GetDeviceName(char* deviceName, uint32_t* deviceNameSize);
+
+/**
+ * @brief Set RGB LED color
+ *
+ * This function updates internal RGB values and
+ * notifies system task to apply PWM changes.
+ *
+ * @param value RGB color structure
+ *
+ * @retval SYSTEM_STATUS_OK     RGB color successfully updated
+ * @retval SYSTEM_STATUS_ERROR  Failed to update RGB color
+ *
+ * @note Function is thread-safe
+ */
+system_status_t SYSTEM_SetRGB(system_rgb_value_t value);
+
 
 /**
  * @}

@@ -39,7 +39,7 @@
 #define BQ25180_CHARGE_INT_PRIO        5       /*!< Interrupt priority for BQ25180 interrupt line */
 
 #define BQ25180_DEV_ADDR               0x6A    /*!< BQ25180 I2C slave device address */
-#define BQ25180_DEV_ID                 0x04    /*!< Expected BQ25180 device identifier value */
+#define BQ25180_DEV_ID                 0xC0    /*!< Expected BQ25180 device identifier value */
 
 #define BQ25180_REG_STAT0              0x00    /*!< Status register 0 */
 #define BQ25180_REG_STAT1              0x01    /*!< Status register 1 */
@@ -169,7 +169,7 @@ bq25180_status_t BQ25180_Init()
 	// Configure the pin for the button
 	drv_gpio_pin_init_conf_t button_pin_conf;
 	button_pin_conf.mode = DRV_GPIO_PIN_MODE_IT_RISING;
-	button_pin_conf.pullState = DRV_GPIO_PIN_PULL_NOPULL;
+	button_pin_conf.pullState = DRV_GPIO_PIN_PULL_UP;
 
 
 	if(DRV_GPIO_Port_Init(BQ25180_CHARGE_INT_PORT) != DRV_GPIO_STATUS_OK)
@@ -191,7 +191,7 @@ bq25180_status_t BQ25180_Ping(uint32_t timeout)
 	uint8_t data = 0;
 	if(prvBQ25180_ReadReg(BQ25180_REG_ID, &data, timeout) != BQ25180_STATUS_OK) return BQ25180_STATUS_ERROR;
 
-	if((data & 0x0F) != (BQ25180_DEV_ID)) return BQ25180_STATUS_ERROR;
+	if((data & 0xF0) != (BQ25180_DEV_ID)) return BQ25180_STATUS_ERROR;
 
     return BQ25180_STATUS_OK;
 }

@@ -1,6 +1,6 @@
-../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:82:22:DRV_USB_CDC_Init	8	static
-../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:98:22:DRV_USB_CDC_TransferData	32	static
-../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:127:22:DRV_USB_CDC_RegisterRxCallback	16	static
-../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:134:9:DRV_USB_CDC_IsConnected	4	static
-../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:139:6:DRV_USB_CDC_RxDataAvailable	16	static
-../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:146:6:DRV_USB_CDC_SetLineState	16	static
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:82:22:DRV_USB_CDC_Init	16	static
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:100:22:DRV_USB_CDC_TransferData	32	static
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:129:22:DRV_USB_CDC_RegisterRxCallback	16	static
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:136:9:DRV_USB_CDC_IsConnected	4	static
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:141:6:DRV_USB_CDC_RxDataAvailable	16	static
+../Core/Drivers/Platform/USB_CDC/drv_usb_cdc.c:148:6:DRV_USB_CDC_SetLineState	16	static

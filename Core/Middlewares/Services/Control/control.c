@@ -2266,29 +2266,6 @@ static void prvCONTROL_StatusLinkTaskFunc(void* pvParameter)
 
 control_status_t 	CONTROL_Init(uint32_t initTimeout){
 
-//	if(xTaskCreate(
-//			prvCONTROL_TaskFunc,
-//			CONTROL_TASK_NAME,
-//			CONTROL_TASK_STACK,
-//			NULL,
-//			CONTROL_TASK_PRIO, &prvCONTROL_DATA.taskHandle) != pdPASS) return CONTROL_STATUS_ERROR;
-//
-//	prvCONTROL_DATA.initSig = xSemaphoreCreateBinary();
-//
-//	if(prvCONTROL_DATA.initSig == NULL) return CONTROL_STATUS_ERROR;
-//
-//	prvCONTROL_DATA.guard = xSemaphoreCreateMutex();
-//
-//	prvCONTROL_DATA.disconnectionCounter = 0;
-//	prvCONTROL_DATA.numberOfStatusLinks  = 0;
-//
-//	if(prvCONTROL_DATA.guard == NULL) return CONTROL_STATUS_ERROR;
-//
-//	prvCONTROL_DATA.state = CONTROL_STATE_INIT;
-//	memset(prvCONTROL_STATUS_LINK_DATA, 0, CONFIG_CONTROL_STATUS_LINK_MAX_NO*sizeof(control_status_link_data_t));
-//
-//	if(xSemaphoreTake(prvCONTROL_DATA.initSig, pdMS_TO_TICKS(initTimeout)) != pdTRUE) return CONTROL_STATUS_ERROR;
-
 	memset(&prvCONTROL_DATA, 0, sizeof(control_data_t));
 	prvCONTROL_DATA.state = CONTROL_STATE_INIT;
 
@@ -2313,58 +2290,15 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 	CMPARSE_AddCommand("", 								prvCONTROL_UndefinedCommand);
 	CMPARSE_AddCommand("device hello", 					prvCONTROL_GetDeviceName);
 	CMPARSE_AddCommand("device setname", 				prvCONTROL_SetDeviceName);
-//	CMPARSE_AddCommand("device slink create", 			prvCONTROL_CreateStatusLink);
 	CMPARSE_AddCommand("device slink send", 			prvCONTROL_StatusLinkSendMessage);
-//	CMPARSE_AddCommand("device eplink create", 			prvCONTROL_EPLinkCreate);
-//	CMPARSE_AddCommand("device stream create", 			prvCONTROL_StreamCreate);
-//	CMPARSE_AddCommand("device stream start", 			prvCONTROL_StreamStart);
-//	CMPARSE_AddCommand("device stream stop", 			prvCONTROL_StreamStop);
 
 	CMPARSE_AddCommand("device adc chresolution set", 	prvCONTROL_SetResolution);
 	CMPARSE_AddCommand("device adc chresolution get", 	prvCONTROL_GetResolution);
 	CMPARSE_AddCommand("device adc chclkdiv set", 		prvCONTROL_SetClkdiv);
-//	CMPARSE_AddCommand("device adc chclkdiv get", 		prvCONTROL_GetClkdiv);
-//	CMPARSE_AddCommand("device adc chstime set", 		prvCONTROL_SetChSamplingtime);
-//	CMPARSE_AddCommand("device adc chstime get", 		prvCONTROL_GetChSamplingtime);
-//	CMPARSE_AddCommand("device adc chavrratio set", 	prvCONTROL_SetAveragingratio);
-//	CMPARSE_AddCommand("device adc chavrratio get", 	prvCONTROL_GetAveragingratio);
-//	CMPARSE_AddCommand("device adc speriod set", 		prvCONTROL_SetSamplingtime);
-//	CMPARSE_AddCommand("device adc speriod get", 		prvCONTROL_GetSamplingtime);
-//	CMPARSE_AddCommand("device adc voffset set", 		prvCONTROL_SetVoltageoffset);
-//	CMPARSE_AddCommand("device adc voffset get", 		prvCONTROL_GetVoltageoffset);
-//	CMPARSE_AddCommand("device adc coffset set", 		prvCONTROL_SetCurrentoffset);
-//	CMPARSE_AddCommand("device adc coffset get", 		prvCONTROL_GetCurrentoffset);
-//	CMPARSE_AddCommand("device adc clk get", 			prvCONTROL_GetADCInputClk);
 	CMPARSE_AddCommand("device adc value get", 			prvCONTROL_GetADCValue);
 	CMPARSE_AddCommand("device adc samplesno set", 		prvCONTROL_SetSamplesNo);
 
 	CMPARSE_AddCommand("device dac enable set", 		prvCONTROL_SetDACActiveStatus);
-//	CMPARSE_AddCommand("device dac enable get", 		prvCONTROL_GetDACActiveStatus);
-//	CMPARSE_AddCommand("device dac value set", 			prvCONTROL_SetDACValue);
-//	CMPARSE_AddCommand("device dac value get", 			prvCONTROL_GetDACValue);
-//
-//	CMPARSE_AddCommand("device load enable", 			prvCONTROL_SetLoadEnable);
-//	CMPARSE_AddCommand("device load disable", 			prvCONTROL_SetLoadDisable);
-//	CMPARSE_AddCommand("device load get", 				prvCONTROL_GetLoad);
-//
-//	CMPARSE_AddCommand("device bat enable", 			prvCONTROL_SetBatEnable);
-//	CMPARSE_AddCommand("device bat disable", 			prvCONTROL_SetBatDisable);
-//	CMPARSE_AddCommand("device bat get", 				prvCONTROL_GetBat);
-//
-//	CMPARSE_AddCommand("device ppath enable", 			prvCONTROL_SetPPathEnable);
-//	CMPARSE_AddCommand("device ppath disable", 			prvCONTROL_SetPPathDisable);
-//	CMPARSE_AddCommand("device ppath get", 				prvCONTROL_GetPPath);
-//
-//	CMPARSE_AddCommand("device wave chunk add", 		prvCONTROL_AddWaveChunk);
-//	CMPARSE_AddCommand("device wave state set", 		prvCONTROL_WaveChunkSet);
-//	CMPARSE_AddCommand("device wave clear", 			prvCONTROL_WaveClear);
-//
-//
-//	CMPARSE_AddCommand("device uvoltage get", 		    prvCONTROL_GetUVoltage);
-//	CMPARSE_AddCommand("device ovoltage get", 		    prvCONTROL_GetOVoltage);
-//	CMPARSE_AddCommand("device ocurrent get", 		    prvCONTROL_GetOCurrent);
-//
-//	CMPARSE_AddCommand("device latch trigger", 			prvCONTROL_LatchTrigger);
 
 
 	CMPARSE_AddCommand("device rgb setcolor",     		prvCONTROL_SetRGBColor);

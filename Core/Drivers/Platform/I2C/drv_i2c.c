@@ -169,8 +169,8 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
 		PC1     ------> I2C3_SDA
 		*/
 		GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
-		GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-		GPIO_InitStruct.Pull = GPIO_NOPULL;
+		GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+		GPIO_InitStruct.Pull = GPIO_PULLUP;
 		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 		GPIO_InitStruct.Alternate = GPIO_AF4_I2C3;
 		HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
@@ -243,7 +243,7 @@ drv_i2c_status_t	DRV_I2C_Instance_Init(drv_i2c_instance_t instance, drv_i2c_conf
 
 	drv_i2c_handle_t* handle = prvDRV_I2C_GetHandle(instance);
 	if(handle == NULL || config == NULL) return DRV_I2C_STATUS_OK;
-	if(handle->initState == DRV_I2C_INITIALIZATION_STATUS_INIT) return DRV_I2C_STATUS_ERROR;
+	if(handle->initState == DRV_I2C_INITIALIZATION_STATUS_INIT) return DRV_I2C_STATUS_OK;
 
 	handle->instance = instance;
 	handle->config   = *config;

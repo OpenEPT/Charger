@@ -87,8 +87,10 @@ drv_usb_cdc_status_t	DRV_USB_CDC_Init(void)
 
 	prvDRV_USB_CDC_HANDLE.lock = xSemaphoreCreateMutex();
 	if(prvDRV_USB_CDC_HANDLE.lock == NULL) return DRV_USB_CDC_STATUS_ERROR;
+
+	int a = HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_USB);
 	//TODO
-	//MX_USB_DEVICE_Init();
+	MX_USB_DEVICE_Init();
 
 	prvDRV_USB_CDC_HANDLE.initState 	= DRV_USB_CDC_INITIALIZATION_STATUS_INIT;
 

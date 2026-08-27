@@ -27,10 +27,13 @@ Core/Drivers/Platform/GPIO \
 Core/Drivers/Platform/I2C \
 Core/Drivers/Platform/Interrupts \
 Core/Drivers/Platform/System \
+Core/Drivers/Platform/Timer \
 Core/Drivers/Platform/UART \
 Core/Drivers/Platform/USB_CDC \
+Core/HAL/AT24CS01 \
 Core/HAL/BQ25180 \
 Core/Middlewares/Services/Charger \
+Core/Middlewares/Services/Configuration \
 Core/Middlewares/Services/Control/CMParse \
 Core/Middlewares/Services/Control \
 Core/Middlewares/Services/Logging \

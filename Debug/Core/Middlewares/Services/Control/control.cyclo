@@ -25,5 +25,5 @@
 ../Core/Middlewares/Services/Control/control.c:2204:13:prvCONTROL_TaskFunc	4
 ../Core/Middlewares/Services/Control/control.c:2242:13:prvCONTROL_StatusLinkTaskFunc	3
 ../Core/Middlewares/Services/Control/control.c:2267:19:CONTROL_Init	11
-../Core/Middlewares/Services/Control/control.c:2470:19:CONTROL_StatusLinkSendMessage	4
-../Core/Middlewares/Services/Control/control.c:2483:19:CONTROL_StatusLinkSendMessageFromISR	5
+../Core/Middlewares/Services/Control/control.c:2404:19:CONTROL_StatusLinkSendMessage	4
+../Core/Middlewares/Services/Control/control.c:2417:19:CONTROL_StatusLinkSendMessageFromISR	5

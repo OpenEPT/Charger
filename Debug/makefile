@@ -24,10 +24,13 @@ RM := rm -rf
 -include Core/Middlewares/Services/Logging/subdir.mk
 -include Core/Middlewares/Services/Control/CMParse/subdir.mk
 -include Core/Middlewares/Services/Control/subdir.mk
+-include Core/Middlewares/Services/Configuration/subdir.mk
 -include Core/Middlewares/Services/Charger/subdir.mk
 -include Core/HAL/BQ25180/subdir.mk
+-include Core/HAL/AT24CS01/subdir.mk
 -include Core/Drivers/Platform/USB_CDC/subdir.mk
 -include Core/Drivers/Platform/UART/subdir.mk
+-include Core/Drivers/Platform/Timer/subdir.mk
 -include Core/Drivers/Platform/System/subdir.mk
 -include Core/Drivers/Platform/Interrupts/subdir.mk
 -include Core/Drivers/Platform/I2C/subdir.mk
