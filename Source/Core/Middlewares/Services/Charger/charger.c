@@ -420,7 +420,12 @@ static void prvCHARGER_TaskFunc(void* pvParameters)
 		case CHARGER_STATE_UNDEF:
 		case CHARGER_STATE_ERROR:
 			SYSTEM_ReportError(SYSTEM_ERROR_LEVEL_LOW);
-			vTaskDelay(portMAX_DELAY);
+			/* Do not halt forever: the charger IC can become reachable later
+			 * (e.g. once input power is applied), so periodically retry the
+			 * whole init instead of sleeping on portMAX_DELAY. */
+			retryCounter = 0;
+			vTaskDelay(pdMS_TO_TICKS(2000));
+			prvCHARGER_DATA.state = CHARGER_STATE_INIT;
 			break;
 		}
 	}

@@ -375,8 +375,12 @@ static void prvSYSTEM_Task(void *argument)
 
 			if(CHARGER_Init(2000) != CHARGER_STATUS_OK)
 			{
-				prvSYSTEM_DATA.state = SYSTEM_STATE_ERROR;
-				break;
+				/* The charger IC may not be reachable yet (e.g. input power not
+				 * applied). This must NOT halt the system: the charger service
+				 * retries on its own, and the rest of the system (USB control,
+				 * etc.) must come up regardless of charger availability. */
+				LOGGING_Write("System service", LOGGING_MSG_TYPE_WARNING,
+						"Charger not ready at boot, continuing without it (will retry)\r\n");
 			}
 			CHARGER_RegisterStatusCallback(prvSYSTEM_ChargerStatusCallback);
 

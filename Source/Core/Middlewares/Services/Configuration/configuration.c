@@ -336,7 +336,7 @@ static void prvCONFIGURATION_Task(void *pvParameters)
             break;
 
         case CONFIGURATION_STATE_SERVICE:
-
+        {
             int32_t value;
 
             /* Wait for a configuration request. */
@@ -383,6 +383,7 @@ static void prvCONFIGURATION_Task(void *pvParameters)
             }
 
             break;
+        }
 
         case CONFIGURATION_STATE_ERROR:
 

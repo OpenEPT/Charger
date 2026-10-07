@@ -823,6 +823,110 @@ static void prvCONTROL_ChargerReadReg(const char* arguments, uint16_t argumentsL
 }
 
 /**
+ * @brief	Set maximum charging current value
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargingMaxCurrentSet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	cmparse_value_t				value;
+	uint32_t					current;
+	memset(&value, 0, sizeof(cmparse_value_t));
+	if(CMPARSE_GetArgValue(arguments, argumentsLength, "value", &value) != CMPARSE_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to obtain maximum charging current value\r\n");
+		return;
+	}
+	sscanf(value.value, "%lu", &current);
+
+	if(CHARGER_SetChargingMaxCurrent(current, 1000) == CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Maximum charging current set to %lu\r\n", current);
+	}
+	else
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to set maximum charging current\r\n");
+		return;
+	}
+}
+/**
+ * @brief	Get maximum charging current value
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargingMaxCurrentGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	charger_max_charging_current_t	current;
+	char						currentString[10];
+	uint32_t					currentStringLength = 0;
+
+	if(CHARGER_GetChargingMaxCurrent(&current, 1000) != CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get maximum charging current\r\n");
+	}
+	else
+	{
+		memset(currentString, 0, sizeof(currentString));
+		currentStringLength = sprintf(currentString, "%u", (unsigned int)current);
+		prvCONTROL_PrepareOkResponse(response, responseSize, currentString, currentStringLength);
+	}
+}
+/**
+ * @brief	Get charger firmware version
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargerGetFWVersion(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	char						buffer[CONF_CONFIGURATION_MAX_PARAM_VALUESIZE];
+
+	if(CHARGER_GetFwVersion(buffer, sizeof(buffer), 1000) != CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get charger FW version\r\n");
+		return;
+	}
+
+	prvCONTROL_PrepareOkResponse(response, responseSize, buffer, strlen(buffer));
+	LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Charger FW version read: %s\r\n", buffer);
+}
+/**
+ * @brief	Get charger hardware serial number
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargerGetHWSerial(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	char						buffer[CONF_CONFIGURATION_MAX_PARAM_VALUESIZE];
+
+	if(CHARGER_GetSerial(buffer, sizeof(buffer), 1000) != CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get charger HW serial\r\n");
+		return;
+	}
+
+	prvCONTROL_PrepareOkResponse(response, responseSize, buffer, strlen(buffer));
+	LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Charger HW serial read: %s\r\n", buffer);
+}
+
+/**
  * @brief	Enable load
  * @param	arguments: arguments defined within control message
  * @param	argumentsLength: arguments message length
@@ -2180,18 +2284,52 @@ static void prvCONTROL_StatusLinkSendMessage(const char* arguments, uint16_t arg
  */
 static void prvCONTROL_RxCallback(uint8_t* data, uint32_t len)
 {
-	control_rx_packet_t pkt;
+	/* Line assembly buffer: characters arrive one-by-one from interactive
+	 * terminals (minicom, screen, ...), so accumulate them until a line
+	 * terminator (CR/LF) and only then enqueue the complete command. A host
+	 * that sends a whole line in a single transfer still works, since the
+	 * terminating CR/LF flushes the accumulated bytes. */
+	static char lineBuf[CONTROL_BUFFER_SIZE];
+	static uint16_t lineLen = 0;
+
 	BaseType_t higherPriorityTaskWoken = pdFALSE;
 
-	if(len == 0 || len > CONTROL_BUFFER_SIZE){
-		return;
+	if(len == 0) return;
+
+	for(uint32_t i = 0; i < len; i++)
+	{
+		uint8_t c = data[i];
+
+		if(c == '\r' || c == '\n')
+		{
+			if(lineLen > 0)
+			{
+				control_rx_packet_t pkt;
+
+				memset(&pkt, 0, sizeof(control_rx_packet_t));
+				memcpy(pkt.data, lineBuf, lineLen);
+				pkt.length = lineLen;
+				lineLen = 0;
+
+				xQueueSendFromISR(prvCONTROL_DATA.rxQueue, &pkt, &higherPriorityTaskWoken);
+			}
+		}
+		else if(c == '\b' || c == 0x7F)
+		{
+			/* Backspace / delete: drop the last buffered character */
+			if(lineLen > 0) lineLen--;
+		}
+		else if(lineLen < CONTROL_BUFFER_SIZE)
+		{
+			lineBuf[lineLen++] = (char)c;
+		}
+		else
+		{
+			/* Overflow: discard the oversized line */
+			lineLen = 0;
+		}
 	}
 
-	memset(&pkt, 0, sizeof(control_rx_packet_t));
-	memcpy(pkt.data, data, len);
-	pkt.length = len;
-
-	xQueueSendFromISR(prvCONTROL_DATA.rxQueue, &pkt, &higherPriorityTaskWoken);
 	portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
@@ -2313,9 +2451,13 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 	CMPARSE_AddCommand("charger charging current get",  	prvCONTROL_ChargingCurrentGet);
 	CMPARSE_AddCommand("charger charging termcurrent set",  prvCONTROL_ChargingTermCurrentSet);
 	CMPARSE_AddCommand("charger charging termcurrent get",  prvCONTROL_ChargingTermCurrentGet);
+	CMPARSE_AddCommand("charger charging maxcurrent set",  	prvCONTROL_ChargingMaxCurrentSet);
+	CMPARSE_AddCommand("charger charging maxcurrent get",  	prvCONTROL_ChargingMaxCurrentGet);
 	CMPARSE_AddCommand("charger charging termvoltage set",  prvCONTROL_ChargingTermVoltageSet);
 	CMPARSE_AddCommand("charger charging termvoltage get",  prvCONTROL_ChargingTermVoltageGet);
 	CMPARSE_AddCommand("charger reg read",  				prvCONTROL_ChargerReadReg);
+	CMPARSE_AddCommand("charger fwversion get",  			prvCONTROL_ChargerGetFWVersion);
+	CMPARSE_AddCommand("charger hwserial get",  			prvCONTROL_ChargerGetHWSerial);
 
 
 	if(xSemaphoreTake(prvCONTROL_DATA.initSig, pdMS_TO_TICKS(initTimeout)) != pdTRUE) return CONTROL_STATUS_ERROR;
