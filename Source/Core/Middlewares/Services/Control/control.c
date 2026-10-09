@@ -31,6 +31,7 @@
 //#include "dpcontrol.h"
 #include "charger.h"
 #include "configuration.h"
+#include "../SamplesStream/sstream.h"
 #include "drv_usb_cdc.h"
 
 /**
@@ -795,6 +796,61 @@ static void prvCONTROL_ChargingTermVoltageGet(const char* arguments, uint16_t ar
 }
 
 /**
+ * @brief	Set input-voltage calibration gain (V_CAL parameter, [V per ADC count]).
+ *          Stored as a string to preserve the full precision of the small gain;
+ *          persisted to EEPROM on "charger config store".
+ */
+static void prvCONTROL_ChargerVCalSet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	cmparse_value_t				value;
+	float						gain = 0.0f;
+	char						gainString[32];
+	memset(&value, 0, sizeof(cmparse_value_t));
+	if(CMPARSE_GetArgValue(arguments, argumentsLength, "value", &value) != CMPARSE_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to obtain V_CAL value\r\n");
+		return;
+	}
+
+	/* Parse then reformat with full precision (avoids any trailing-arg bytes and
+	 * the %.4f truncation of CONFIGURATION_SetParameter_Float). */
+	sscanf(value.value, "%f", &gain);
+	snprintf(gainString, sizeof(gainString), "%.8f", gain);
+
+	if(CONFIGURATION_SetParameter_String("V_CAL", gainString, 1000) == CONFIGURATION_STATUS_OK)
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "V_CAL set to %s\r\n", gainString);
+	}
+	else
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to set V_CAL\r\n");
+	}
+}
+
+/**
+ * @brief	Get input-voltage calibration gain (V_CAL parameter).
+ */
+static void prvCONTROL_ChargerVCalGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	char						vcalString[32];
+	uint8_t						defaultFlag = 0;
+
+	memset(vcalString, 0, sizeof(vcalString));
+	if(CONFIGURATION_GetParameter_String("V_CAL", vcalString, sizeof(vcalString), &defaultFlag) != CONFIGURATION_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get V_CAL\r\n");
+	}
+	else
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, vcalString, strlen(vcalString));
+	}
+}
+
+/**
  * @brief	Get charger register content
  * @param	arguments: arguments defined within control message
  * @param	argumentsLength: arguments message length
@@ -891,6 +947,28 @@ static void prvCONTROL_ChargerConfigStore(const char* arguments, uint16_t argume
 		prvCONTROL_PrepareErrorResponse(response, responseSize);
 		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to store configuration\r\n");
 	}
+}
+
+/**
+ * @brief	Start streaming battery voltage to the host over USB
+ */
+static void prvCONTROL_VoltageStreamStart(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	if(SSTREAM_StartStream(1000) == SSTREAM_STATUS_OK)
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+	else
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+}
+
+/**
+ * @brief	Stop streaming battery voltage
+ */
+static void prvCONTROL_VoltageStreamStop(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	if(SSTREAM_StopStream(1000) == SSTREAM_STATUS_OK)
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+	else
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
 }
 
 /**
@@ -2659,6 +2737,10 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 	CMPARSE_AddCommand("charger bd read",  					prvCONTROL_ChargerBdRead);
 	CMPARSE_AddCommand("charger bd format",  				prvCONTROL_ChargerBdFormat);
 	CMPARSE_AddCommand("charger config store",  			prvCONTROL_ChargerConfigStore);
+	CMPARSE_AddCommand("charger vcal set",  				prvCONTROL_ChargerVCalSet);
+	CMPARSE_AddCommand("charger vcal get",  				prvCONTROL_ChargerVCalGet);
+	CMPARSE_AddCommand("charger voltage stream start",  	prvCONTROL_VoltageStreamStart);
+	CMPARSE_AddCommand("charger voltage stream stop",  		prvCONTROL_VoltageStreamStop);
 	CMPARSE_AddCommand("charger fwversion get",  			prvCONTROL_ChargerGetFWVersion);
 	CMPARSE_AddCommand("charger hwserial get",  			prvCONTROL_ChargerGetHWSerial);
 
@@ -2748,7 +2830,11 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 //
 control_status_t 	CONTROL_StatusLinkSendMessage(const char* message, contol_status_message_type_t type, uint32_t timeout)
 {
-	if(prvCONTROL_STATUS_LINK_DATA[0].linkState != CONTROL_LINK_STATE_UP) return CONTROL_STATUS_ERROR;
+	/* Gate on the actual USB connection, not on linkState: linkState only turns
+	 * UP inside the status-link task after it dequeues a message, so gating the
+	 * enqueue on linkState==UP would be a chicken-and-egg deadlock (nothing ever
+	 * gets queued, so the task never runs, so linkState never goes UP). */
+	if(!DRV_USB_CDC_IsConnected()) return CONTROL_STATUS_ERROR;
 	uint32_t messageSize = strlen(message);
 	control_status_message_t messageData;
 	if(messageSize > CONTROL_BUFFER_SIZE) return CONTROL_STATUS_ERROR;

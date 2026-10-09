@@ -65,9 +65,26 @@ static uint8_t							prvDRV_AIN_SAMPLES_NO;           /**< Number of samples per
 //
 static void prvDRV_AIN_BufferReady(uint8_t bufIdx);
 
-void ADC3_IRQHandler(void)
+/* Single-sample callback (battery voltage): invoked from the ADC EOC ISR with
+ * the latest converted value. Registered via DRV_AIN_RegisterSampleCallback(). */
+static drv_ain_sample_callback_t	prvDRV_AIN_SAMPLE_CALLBACK = 0;
+static volatile uint16_t			prvDRV_AIN_LAST_VALUE = 0;
+
+/* STM32L4 ADC1/ADC2 share one vector. */
+void ADC1_2_IRQHandler(void)
 {
 	HAL_ADC_IRQHandler(&prvDRV_AIN_DEVICE_ADC_HANDLER);
+}
+
+/* Called by HAL from ADC1_2_IRQHandler on end of (regular) conversion. */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+	if(hadc->Instance == ADC1)
+	{
+		prvDRV_AIN_LAST_VALUE = (uint16_t)HAL_ADC_GetValue(hadc);
+		if(prvDRV_AIN_SAMPLE_CALLBACK != 0)
+			prvDRV_AIN_SAMPLE_CALLBACK(prvDRV_AIN_LAST_VALUE);
+	}
 }
 
 
@@ -139,34 +156,20 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
 		PC2     ------> ADC1_INP0
 		PC3     ------> ADC1_INP1
 		*/
-		GPIO_InitStruct.Pin  = GPIO_PIN_2 | GPIO_PIN_3;
-		GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+		/* PC3 = ADC1_IN4 (battery voltage) as analog input.
+		 * On STM32L47x this MUST be ANALOG_ADC_CONTROL (not plain ANALOG) so
+		 * HAL sets the GPIOx_ASCR bit that closes the analog switch between the
+		 * I/O and the ADC. With plain GPIO_MODE_ANALOG the switch stays open and
+		 * the ADC reads a residual/attenuated level regardless of sampling time. */
+		GPIO_InitStruct.Pin  = GPIO_PIN_3;
+		GPIO_InitStruct.Mode = GPIO_MODE_ANALOG_ADC_CONTROL;
 		GPIO_InitStruct.Pull = GPIO_NOPULL;
 		HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-		/* ADC3 DMA Init */
-		/* ADC3 Init */
 
-		__HAL_RCC_DMA1_CLK_ENABLE();
-
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Instance 					= DMA1_Channel1;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.Request 				= DMA_REQUEST_0;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.Direction			= DMA_PERIPH_TO_MEMORY;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.PeriphInc 			= DMA_PINC_DISABLE;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.MemInc 				= DMA_MINC_ENABLE;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.PeriphDataAlignment 	= DMA_PDATAALIGN_HALFWORD;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.MemDataAlignment 	= DMA_MDATAALIGN_HALFWORD;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.Mode 				= DMA_CIRCULAR;
-		prvDRV_AIN_DEVICE_DMA_HANDLER.Init.Priority 			= DMA_PRIORITY_HIGH;
-		if (HAL_DMA_Init(&prvDRV_AIN_DEVICE_DMA_HANDLER) != HAL_OK)
-		{
-		  return;
-		}
-
-		__HAL_LINKDMA(&prvDRV_AIN_DEVICE_ADC_HANDLER, DMA_Handle, prvDRV_AIN_DEVICE_DMA_HANDLER);
-
-		HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 5, 0);
-		HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-
+		/* End-of-conversion interrupt (no DMA for a single 10 Hz channel).
+		 * Priority must be in the FreeRTOS-manageable range (>= 5). */
+		HAL_NVIC_SetPriority(ADC1_2_IRQn, 6, 0);
+		HAL_NVIC_EnableIRQ(ADC1_2_IRQn);
 	}
 
 }
@@ -297,26 +300,30 @@ static void							prvDRV_AIN_DMAHalfComplitedCallback(DMA_HandleTypeDef *_hdma)
  */
 static drv_ain_status				prvDRV_AIN_InitDeviceTimer()
 {
+	TIM_ClockConfigTypeDef  sClockSourceConfig = {0};
+	TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-//	TIM_ClockConfigTypeDef  sClockSourceConfig = {0};
-//	TIM_MasterConfigTypeDef sMasterConfig = {0};
-//
-//	prvDRV_AIN_DEVICE_TIMER_HANDLER.Instance = TIM2;
-//	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.Prescaler = 49999;
-//	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.CounterMode = TIM_COUNTERMODE_UP;
-//	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.Period = 3999; // 1us * 1000 = 1000ns / timPeriod [ns]
-//	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-//	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.RepetitionCounter = 0;
-//	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-//	if (HAL_TIM_Base_Init(&prvDRV_AIN_DEVICE_TIMER_HANDLER) != HAL_OK) return DRV_AIN_STATUS_ERROR;
-//	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-//	if (HAL_TIM_ConfigClockSource(&prvDRV_AIN_DEVICE_TIMER_HANDLER, &sClockSourceConfig) != HAL_OK) return DRV_AIN_STATUS_ERROR;
-//	if (HAL_TIM_OC_Init(&prvDRV_AIN_DEVICE_TIMER_HANDLER) != HAL_OK) return DRV_AIN_STATUS_ERROR;
-//	sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
-//	sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_UPDATE;
-//	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-//	if (HAL_TIMEx_MasterConfigSynchronization(&prvDRV_AIN_DEVICE_TIMER_HANDLER, &sMasterConfig) != HAL_OK) return DRV_AIN_STATUS_ERROR;
-//	return DRV_AIN_STATUS_OK;
+	__HAL_RCC_TIM2_CLK_ENABLE();
+
+	/* TIM2 clock = APB1 timer clock = 80 MHz.
+	 * 80 MHz / (7999+1) / (999+1) = 10 Hz  ->  trigger ADC every 100 ms. */
+	prvDRV_AIN_DEVICE_TIMER_HANDLER.Instance 				= TIM2;
+	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.Prescaler 			= 7999;
+	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.CounterMode 		= TIM_COUNTERMODE_UP;
+	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.Period 			= 999;
+	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.ClockDivision 		= TIM_CLOCKDIVISION_DIV1;
+	prvDRV_AIN_DEVICE_TIMER_HANDLER.Init.AutoReloadPreload 	= TIM_AUTORELOAD_PRELOAD_ENABLE;
+	if (HAL_TIM_Base_Init(&prvDRV_AIN_DEVICE_TIMER_HANDLER) != HAL_OK) return DRV_AIN_STATUS_ERROR;
+
+	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+	if (HAL_TIM_ConfigClockSource(&prvDRV_AIN_DEVICE_TIMER_HANDLER, &sClockSourceConfig) != HAL_OK) return DRV_AIN_STATUS_ERROR;
+
+	/* TRGO on update event triggers the ADC (ADC_EXTERNALTRIG_T2_TRGO). */
+	sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+	sMasterConfig.MasterSlaveMode     = TIM_MASTERSLAVEMODE_DISABLE;
+	if (HAL_TIMEx_MasterConfigSynchronization(&prvDRV_AIN_DEVICE_TIMER_HANDLER, &sMasterConfig) != HAL_OK) return DRV_AIN_STATUS_ERROR;
+
+	return DRV_AIN_STATUS_OK;
 }
 /**
  * @brief Initialize the ADC device
@@ -336,27 +343,26 @@ static drv_ain_status				prvDRV_AIN_InitDeviceADC()
 	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.Resolution				= ADC_RESOLUTION_12B;
 	prvDRV_AIN_ADC_CONFIG.resolution							= DRV_AIN_ADC_RESOLUTION_12BIT;
 	prvDRV_AIN_ADC_CONFIG.clockDiv								= DRV_AIN_ADC_CLOCK_DIV_1;
-	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.ScanConvMode 			= ADC_SCAN_ENABLE;
-	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.EOCSelection 			= ADC_EOC_SEQ_CONV;
+	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.ScanConvMode 			= ADC_SCAN_DISABLE;
+	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.EOCSelection 			= ADC_EOC_SINGLE_CONV;
 	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.LowPowerAutoWait 		= DISABLE;
 	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.ContinuousConvMode 		= DISABLE;
-	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.NbrOfConversion 			= 2;
+	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.NbrOfConversion 			= 1;
 	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.DiscontinuousConvMode 	= DISABLE;
 	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.ExternalTrigConv 		= ADC_EXTERNALTRIG_T2_TRGO;
 	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.ExternalTrigConvEdge 	= ADC_EXTERNALTRIGCONVEDGE_RISING;
-	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.DMAContinuousRequests 	= ENABLE;
-	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.Overrun 					= ADC_OVR_DATA_PRESERVED;
+	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.DMAContinuousRequests 	= DISABLE;
+	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.Overrun 					= ADC_OVR_DATA_OVERWRITTEN;
 	prvDRV_AIN_DEVICE_ADC_HANDLER.Init.OversamplingMode 		= DISABLE;
 	if (HAL_ADC_Init(&prvDRV_AIN_DEVICE_ADC_HANDLER) != HAL_OK) return DRV_AIN_STATUS_ERROR;
 
-	/** Configure Regular Channel 1 */
-	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.Channel 					= ADC_CHANNEL_3;
+	/** Configure Regular Channel: PC3 = ADC1_IN4, single-ended (battery voltage) */
+	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.Channel 					= ADC_CHANNEL_4;
 	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.Rank 						= ADC_REGULAR_RANK_1;
-	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.SamplingTime 				= DRV_AIN_ADC_SAMPLE_TIME_2C5;
-	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.SingleDiff 					= ADC_DIFFERENTIAL_ENDED;
+	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.SamplingTime 				= ADC_SAMPLETIME_640CYCLES_5;
+	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.SingleDiff 					= ADC_SINGLE_ENDED;
 	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.OffsetNumber 				= ADC_OFFSET_NONE;
 	prvDRV_AIN_ADC_CHANNEL_1_CONFIG.Offset 						= 0;
-	prvDRV_AIN_ADC_CONFIG.ch1.sampleTime						= DRV_AIN_ADC_SAMPLE_TIME_2C5;
 	if (HAL_ADC_ConfigChannel(&prvDRV_AIN_DEVICE_ADC_HANDLER, &prvDRV_AIN_ADC_CHANNEL_1_CONFIG) != HAL_OK) return DRV_AIN_STATUS_ERROR;
 
 	//if (HAL_ADC_RegisterCallback(&prvDRV_AIN_DEVICE_ADC_HANDLER, HAL_ADC_CONVERSION_COMPLETE_CB_ID, prvDRV_AIN_DMAHalfComplitedCallback)!= HAL_OK)return DRV_AIN_STATUS_ERROR;
@@ -412,21 +418,14 @@ drv_ain_status 						DRV_AIN_Init(drv_ain_adc_t adc, drv_ain_adc_config_t* confi
 }
 drv_ain_status 						DRV_AIN_Start(drv_ain_adc_t adc)
 {
+	(void)adc;
 	if(prvDRV_AIN_ACQUISITION_STATUS == DRV_AIN_ADC_ACQUISITION_STATUS_ACTIVE) return DRV_AIN_STATUS_ERROR;
 
-	memset((void*)prvDRV_AIN_ADC_DATA_SAMPLES, 0, 2*(CONF_AIN_MAX_BUFFER_NO*(DRV_AIN_ADC_BUFFER_MAX_SIZE + DRV_AIN_ADC_BUFFER_OFFSET)));
-	prvDRV_AIN_CAPTURE_SINGLE_BUFFER = 0;
-	prvDRV_AIN_ADC_ACTIVE_BUFFER	= 0;
-	prvDRV_AIN_ADC_BUFFER_COUNTER	= 0;
-
-	//HAL_GPIO_WritePin(GPIOE, GPIO_PIN_15, GPIO_PIN_RESET);
-
-	while(HAL_ADCEx_Calibration_Start(&prvDRV_AIN_DEVICE_ADC_HANDLER, ADC_DIFFERENTIAL_ENDED) != HAL_OK);
+	/* Calibrate (single-ended), then arm the ADC for interrupt-driven,
+	 * timer-triggered conversions. Each TIM2 TRGO -> one conversion -> EOC IRQ. */
+	while(HAL_ADCEx_Calibration_Start(&prvDRV_AIN_DEVICE_ADC_HANDLER, ADC_SINGLE_ENDED) != HAL_OK);
+	if(HAL_ADC_Start_IT(&prvDRV_AIN_DEVICE_ADC_HANDLER) != HAL_OK) return DRV_AIN_STATUS_ERROR;
 	if(HAL_TIM_Base_Start(&prvDRV_AIN_DEVICE_TIMER_HANDLER) != HAL_OK) return DRV_AIN_STATUS_ERROR;
-	if(HAL_ADC_Start_DMA(&prvDRV_AIN_DEVICE_ADC_HANDLER,
-			(uint32_t*)(&prvDRV_AIN_ADC_DATA_SAMPLES[0][DRV_AIN_ADC_BUFFER_OFFSET]),
-			/*(uint32_t*)(&prvDRV_AIN_ADC_DATA_SAMPLES[DRV_AIN_ADC_BUFFER_NO-1][DRV_AIN_ADC_BUFFER_OFFSET]),*/
-			prvDRV_AIN_SAMPLES_NO*2)!= HAL_OK) return DRV_AIN_STATUS_ERROR;
 
 	prvDRV_AIN_ACQUISITION_STATUS = DRV_AIN_ADC_ACQUISITION_STATUS_ACTIVE;
 	return DRV_AIN_STATUS_OK;
@@ -440,56 +439,27 @@ drv_ain_status						DRV_AIN_SetSamplesNo(drv_ain_adc_t adc, uint32_t samplesNo)
 }
 drv_ain_status						DRV_AIN_GetADCValue(drv_ain_adc_t adc, drv_ain_adc_channel_t channel, uint32_t* value)
 {
-	prvDRV_AIN_CAPTURE_SINGLE_BUFFER = 1;
-	uint32_t value1[2];
-	uint32_t tmpValue1[2];
-	//prvDRV_AIN_InitDMA();
-	DRV_AIN_Start(adc);
-	while(prvDRV_AIN_CAPTURE_SINGLE_BUFFER != 2);
-	DRV_AIN_Stop(adc);
-	/*find active buffer*/
-	uint8_t activeBufferNo = 0;
+	(void)adc; (void)channel;
+	if(value == 0) return DRV_AIN_STATUS_ERROR;
+	/* Return the latest sample captured by the EOC ISR. */
+	*value = prvDRV_AIN_LAST_VALUE;
+	return DRV_AIN_STATUS_OK;
+}
 
-	while(activeBufferNo < DRV_AIN_ADC_BUFFER_NO)
-	{
-		if(prvDRV_AIN_ADC_DATA_SAMPLES_ACTIVE[activeBufferNo] == 1) break;
-		activeBufferNo += 1;
-	}
-	DRV_AIN_Stream_SubmitAddr(adc, 0, activeBufferNo);
-
-	if(activeBufferNo == DRV_AIN_ADC_BUFFER_NO) return DRV_AIN_STATUS_ERROR;
-	tmpValue1[0] = 0;
-	tmpValue1[1] = 0;
-	for(uint32_t i = CONF_AIN_ADC_BUFFER_OFFSET; i < DRV_AIN_ADC_BUFFER_MAX_SIZE + CONF_AIN_ADC_BUFFER_OFFSET; i+=2)
-	{
-		tmpValue1[0] += prvDRV_AIN_ADC_DATA_SAMPLES[activeBufferNo][i];
-		tmpValue1[1] += prvDRV_AIN_ADC_DATA_SAMPLES[activeBufferNo][i+1];
-	}
-	value1[0] = tmpValue1[0] / (DRV_AIN_ADC_BUFFER_MAX_SIZE/2);
-	value1[1] = tmpValue1[1] / (DRV_AIN_ADC_BUFFER_MAX_SIZE/2);
-	//value1[i] = HAL_ADC_GetValue(&prvDRV_AIN_DEVICE_ADC_HANDLER);
-	switch(channel)
-	{
-	case 1:
-		*value = value1[0];
-		break;
-	case 2:
-		*value = value1[1];
-		break;
-	default:
-		return DRV_AIN_STATUS_ERROR;
-	}
+drv_ain_status						DRV_AIN_RegisterSampleCallback(drv_ain_sample_callback_t cb)
+{
+	prvDRV_AIN_SAMPLE_CALLBACK = cb;
 	return DRV_AIN_STATUS_OK;
 }
 drv_ain_status 						DRV_AIN_Stop(drv_ain_adc_t adc)
 {
+	(void)adc;
 	if(prvDRV_AIN_ACQUISITION_STATUS != DRV_AIN_ADC_ACQUISITION_STATUS_ACTIVE) return DRV_AIN_STATUS_ERROR;
 
-//	if(HAL_TIM_Base_Stop(&prvDRV_AIN_DEVICE_TIMER_HANDLER) != HAL_OK) return DRV_AIN_STATUS_ERROR;
-//	if(HAL_ADC_Stop_DMA(&prvDRV_AIN_DEVICE_ADC_HANDLER)) return DRV_AIN_STATUS_ERROR;
+	HAL_TIM_Base_Stop(&prvDRV_AIN_DEVICE_TIMER_HANDLER);
+	HAL_ADC_Stop_IT(&prvDRV_AIN_DEVICE_ADC_HANDLER);
 
 	prvDRV_AIN_ACQUISITION_STATUS = DRV_AIN_ADC_ACQUISITION_STATUS_INACTIVE;
-	prvDRV_AIN_CAPTURE_SINGLE_BUFFER = 0;
 	return DRV_AIN_STATUS_OK;
 }
 drv_ain_adc_acquisition_status_t 	DRV_AIN_GetAcquisitonStatus(drv_ain_adc_t adc)

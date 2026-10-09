@@ -276,6 +276,10 @@ static void prvCONFIGURATION_UpdateSystemParamFromBD(void)
                 if(param->systemParam == 0U)
                     continue;
 
+                /* MCU-sourced params (e.g. FW_VER) are never loaded from EEPROM. */
+                if(param->noPersist)
+                    continue;
+
                 if(strcmp(param->name, key) == 0)
                 {
                     size_t len = strnlen(value, CONFIGURATION_MAX_PARAM_VALUESIZE);
@@ -446,6 +450,7 @@ static void prvCONFIGURATION_Task(void *pvParameters)
                     {
                         configuration_param_t* param = &prvCONFIGURATION_DATA.params[i];
                         if(param->name == NULL || param->value == NULL) continue;
+                        if(param->noPersist) continue;   /* MCU-sourced, e.g. FW_VER */
 
                         int written = snprintf(&saveBuf[off], sizeof(saveBuf) - off,
                                                "%s:%s\r\n", param->name, param->value);
