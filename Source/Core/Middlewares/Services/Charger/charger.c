@@ -46,6 +46,7 @@
 #define CHARGER_TASK_REG_READ                         0x00000010 /**< Task flag: Read a register */
 #define CHARGER_TASK_PROCESS_INT                      0x00000020 /**< Task flag: Process interrupt */
 #define CHARGER_TASK_SET_MAX_CURRENT_VALUE            0x00000040 /**< Task flag: Set maximum charging current */
+#define CHARGER_TASK_REG_WRITE                        0x00000080 /**< Task flag: Write a register */
 
 #define CHARGER_DEFAULT_CURRENT_TERMINATION_VALUE     5      /**< Default termination current (%) */
 #define CHARGER_DEFAULT_VOLTAGE_TERMINATION_VALUE     4.12   /**< Default termination voltage (V) */
@@ -361,6 +362,18 @@ static void prvCHARGER_TaskFunc(void* pvParameters)
 				}
 				xSemaphoreGive(prvCHARGER_DATA.initSig);
 			}
+			if(notifyValue & CHARGER_TASK_REG_WRITE)
+			{
+				if(BQ25180_WriteReg(prvCHARGER_DATA.regContent.addr, prvCHARGER_DATA.regContent.data, 1000) != BQ25180_STATUS_OK)
+				{
+					LOGGING_Write("Charger service", LOGGING_MSG_TYPE_ERROR,  "Unable to write register \r\n");
+				}
+				else
+				{
+					LOGGING_Write("Charger service", LOGGING_MSG_TYPE_INFO,  "Register successfully written\r\n");
+				}
+				xSemaphoreGive(prvCHARGER_DATA.initSig);
+			}
 			if(notifyValue & CHARGER_TASK_PROCESS_INT)
 			{
 				//First int is not real interrupt
@@ -596,6 +609,24 @@ charger_status_t	CHARGER_GetRegContent(uint8_t regAddr, uint8_t* regData, uint32
 	if(xSemaphoreTake(prvCHARGER_DATA.initSig, pdMS_TO_TICKS(initTimeout)) != pdPASS) return CHARGER_STATUS_ERROR;
 
 	*regData = prvCHARGER_DATA.regContent.data;
+
+	return CHARGER_STATUS_OK;
+}
+
+charger_status_t	CHARGER_SetRegContent(uint8_t regAddr, uint8_t regData, uint32_t initTimeout)
+{
+	if(xSemaphoreTake(prvCHARGER_DATA.guard, pdMS_TO_TICKS(initTimeout)) != pdTRUE) return CHARGER_STATUS_ERROR;
+
+	prvCHARGER_DATA.regContent.addr = regAddr;
+	prvCHARGER_DATA.regContent.data = regData;
+
+	if(xSemaphoreGive(prvCHARGER_DATA.guard) != pdTRUE) return CHARGER_STATUS_ERROR;
+
+	if(xTaskNotify(prvCHARGER_DATA.taskHandle,
+			CHARGER_TASK_REG_WRITE,
+			eSetBits) != pdPASS) return CHARGER_STATUS_ERROR;
+
+	if(xSemaphoreTake(prvCHARGER_DATA.initSig, pdMS_TO_TICKS(initTimeout)) != pdPASS) return CHARGER_STATUS_ERROR;
 
 	return CHARGER_STATUS_OK;
 }

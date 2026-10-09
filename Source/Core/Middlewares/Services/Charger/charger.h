@@ -202,6 +202,15 @@ charger_status_t CHARGER_GetChargingTermVoltage(float* voltage, uint32_t initTim
 charger_status_t CHARGER_GetRegContent(uint8_t regAddr, uint8_t* regData, uint32_t initTimeout);
 
 /**
+ * @brief	Write a raw value to a BQ25180 register (generic register access)
+ * @param	regAddr: register address
+ * @param	regData: value to write
+ * @param	initTimeout: Timeout for operation
+ * @retval	::charger_status_t
+ */
+charger_status_t CHARGER_SetRegContent(uint8_t regAddr, uint8_t regData, uint32_t initTimeout);
+
+/**
  * @brief   Get charger hardware serial number
  * @param   serial: Pointer to buffer where the serial number will be stored
  * @param   size: Size of the destination buffer in bytes

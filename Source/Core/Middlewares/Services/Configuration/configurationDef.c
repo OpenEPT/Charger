@@ -24,7 +24,7 @@ static configuration_param_t prvCONFIGURATION_DEFAULTS[] =
         },
         {
             .name = "FW_VER",
-            .value = "1.0.0",
+            .value = "2.0.0",
             .type = CONFIGURATION_PARAM_TYPE_STRING,
             .readOnly = 0,
             .defaultValue = 1,

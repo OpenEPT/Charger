@@ -34,6 +34,7 @@
 #include "logging.h"
 #include "charger.h"
 #include "control.h"
+#include "control.h"
 #include "configuration.h"
 #include "drv_timer.h"
 #include "drv_gpio.h"
@@ -289,14 +290,17 @@ static void prvSYSTEM_ChargerStatusCallback(charger_charging_status_t status)
     {
         case CHARGER_CHARGING_STATUS_DONE:
             SYSTEM_SetOpState(SYSTEM_OPSTATE_CHARGING_DONE);
+            CONTROL_StatusLinkSendMessage("charger charging mode done\r\n", CONTROL_STATUS_MESSAGE_TYPE_INFO, 1000);
             break;
 
         case CHARGER_CHARGING_STATUS_CC:
             SYSTEM_SetOpState(SYSTEM_OPSTATE_CHARGING_CC);
+            CONTROL_StatusLinkSendMessage("charger charging mode cc\r\n", CONTROL_STATUS_MESSAGE_TYPE_INFO, 1000);
             break;
 
         case CHARGER_CHARGING_STATUS_CV:
             SYSTEM_SetOpState(SYSTEM_OPSTATE_CHARGING_CV);
+            CONTROL_StatusLinkSendMessage("charger charging mode cv\r\n", CONTROL_STATUS_MESSAGE_TYPE_INFO, 1000);
             break;
 
         default:

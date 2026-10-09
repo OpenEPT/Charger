@@ -299,6 +299,15 @@ bq25180_status_t BQ25180_RegCallback(bq25180_intcb cb);
  */
 bq25180_status_t BQ25180_ReadReg(uint8_t regAddr, uint8_t* data, uint32_t timeout);
 
+/**
+ * @brief	Write a raw value to a BQ25180 register
+ * @param	regAddr: register address
+ * @param	data: value to write
+ * @param	timeout: communication timeout in milliseconds
+ * @retval	::bq25180_status_t
+ */
+bq25180_status_t BQ25180_WriteReg(uint8_t regAddr, uint8_t data, uint32_t timeout);
+
 
 
 /**
