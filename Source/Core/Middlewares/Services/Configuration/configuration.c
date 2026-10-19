@@ -184,10 +184,37 @@ static void prvCONFIGURATION_ReportDefaultParams(void)
 
 
 
+/**
+ * @brief   CRC32 checksum (same algorithm as zlib.crc32 and the EPP firmware /
+ *          image-generation scripts): reflected, poly 0xEDB88320,
+ *          init/final-XOR 0xFFFFFFFF.
+ */
+static uint32_t prvCONFIGURATION_CRC32(const uint8_t* data, uint32_t size)
+{
+    uint32_t crc = 0xFFFFFFFFU;
+
+    for(uint32_t i = 0; i < size; i++)
+    {
+        crc ^= data[i];
+
+        for(uint32_t bit = 0; bit < 8U; bit++)
+        {
+            if((crc & 1U) != 0U)
+                crc = (crc >> 1U) ^ 0xEDB88320U;
+            else
+                crc >>= 1U;
+        }
+    }
+
+    return crc ^ 0xFFFFFFFFU;
+}
+
 static void prvCONFIGURATION_UpdateSystemParamFromBD(void)
 {
     uint8_t header[CONF_CONFIGURATION_HEADER_SIZE];
     uint32_t payloadSize = 0;
+    uint32_t storedCrc = 0;
+    uint32_t calculatedCrc = 0;
 
     char* line;
     char* sep;
@@ -236,6 +263,31 @@ static void prvCONFIGURATION_UpdateSystemParamFromBD(void)
     }
 
     payloadBuffer[payloadSize] = '\0';
+
+    /* ===== VALIDATE CRC32 (trailer right after the payload) ===== */
+    if((CONF_CONFIGURATION_HEADER_SIZE + payloadSize + sizeof(uint32_t)) > AT24CS01_MEMORY_SIZE_BYTES)
+    {
+        LOGGING_Write("CONFIG", LOGGING_MSG_TYPE_ERROR,
+                      "System payload leaves no room for CRC\r\n");
+        return;
+    }
+
+    if(AT24CS01_Read((uint8_t)(CONF_CONFIGURATION_HEADER_SIZE + payloadSize),
+                     (uint8_t*)&storedCrc, sizeof(storedCrc), 1000) != AT24CS01_STATUS_OK)
+    {
+        LOGGING_Write("CONFIG", LOGGING_MSG_TYPE_ERROR,
+                      "System BD read failed (CRC)\r\n");
+        return;
+    }
+
+    calculatedCrc = prvCONFIGURATION_CRC32((uint8_t*)payloadBuffer, payloadSize);
+
+    if(calculatedCrc != storedCrc)
+    {
+        LOGGING_Write("CONFIG", LOGGING_MSG_TYPE_ERROR,
+                      "Invalid system configuration CRC\r\n");
+        return;
+    }
 
     /* ===== PARSE ===== */
     line = strtok_r(payloadBuffer, "\r\n", &saveptr);
@@ -459,12 +511,17 @@ static void prvCONFIGURATION_Task(void *pvParameters)
                     }
                     payloadSize = off;
 
-                    if((CONF_CONFIGURATION_HEADER_SIZE + payloadSize) <= AT24CS01_MEMORY_SIZE_BYTES)
+                    if((CONF_CONFIGURATION_HEADER_SIZE + payloadSize + sizeof(uint32_t)) <= AT24CS01_MEMORY_SIZE_BYTES)
                     {
+                        /* magic(4) | payloadSize(4) | payload | CRC32(4) -- same
+                         * format as the EPP firmware and the image-gen scripts. */
+                        uint32_t crc = prvCONFIGURATION_CRC32((uint8_t*)saveBuf, payloadSize);
+
                         memset(image, 0, sizeof(image));
                         memcpy(&image[0], &magic, sizeof(magic));
                         memcpy(&image[4], &payloadSize, sizeof(payloadSize));
                         memcpy(&image[CONF_CONFIGURATION_HEADER_SIZE], saveBuf, payloadSize);
+                        memcpy(&image[CONF_CONFIGURATION_HEADER_SIZE + payloadSize], &crc, sizeof(crc));
 
                         if(AT24CS01_Write(0, image, AT24CS01_MEMORY_SIZE_BYTES, 1000) != AT24CS01_STATUS_OK)
                             LOGGING_Write("CONFIG", LOGGING_MSG_TYPE_ERROR, "Configuration EEPROM write failed\r\n");
