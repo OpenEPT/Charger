@@ -74,6 +74,16 @@ configuration_status_t CONFIGURATION_Init(uint32_t initTimeout);
 configuration_status_t CONFIGURATION_UpdateFromFS(uint32_t initTimeout);
 configuration_status_t CONFIGURATION_UpdateFromBD(uint32_t timeout);
 configuration_status_t CONFIGURATION_StoreToFS(uint32_t initTimeout);
+
+/**
+ * @brief Raw charger (AT24CS01) EEPROM access, serviced by the configuration task.
+ * @{
+ */
+uint16_t               CONFIGURATION_CHARGER_GetEepromSize(void);
+configuration_status_t CONFIGURATION_CHARGER_EepromRead(uint8_t offset, uint8_t* data, uint8_t size, uint32_t timeout);
+configuration_status_t CONFIGURATION_CHARGER_EepromWrite(uint8_t offset, const uint8_t* data, uint8_t size, uint32_t timeout);
+configuration_status_t CONFIGURATION_CHARGER_EepromFormat(uint32_t timeout);
+/** @} */
 configuration_status_t CONFIGURATION_GetParameter(const char* key, char* parameter, uint16_t* paramSize, uint8_t* defaultFlag);
 configuration_status_t CONFIGURATION_GetParameter_Int(const char* key, int32_t* value, uint8_t* defaultFlag);
 configuration_status_t CONFIGURATION_GetParameter_Float(const char* key, float* value, uint8_t* defaultFlag);

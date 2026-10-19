@@ -18,6 +18,9 @@
 #include "main.h"
 #include "drv_i2c.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include <string.h>
 
 /**
@@ -150,7 +153,10 @@ static at24cs01_status_t prvAT24CS01_WritePage(uint8_t memAddr,
         return AT24CS01_STATUS_ERROR;
     }
 
-    HAL_Delay(AT24CS01_WRITE_CYCLE_TIME_MS);
+    /* Wait for the EEPROM internal write cycle to finish. Use an RTOS delay
+     * (not HAL_Delay busy-wait) with margin above tWR(max)=5ms, otherwise the
+     * next page write can hit a still-busy device and NACK. */
+    vTaskDelay(pdMS_TO_TICKS(AT24CS01_WRITE_CYCLE_TIME_MS + 5U));
 
     return AT24CS01_STATUS_OK;
 }

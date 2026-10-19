@@ -465,6 +465,11 @@ bq25180_status_t BQ25180_ReadReg(uint8_t regAddr, uint8_t* data, uint32_t timeou
     return prvBQ25180_ReadReg(regAddr, data, timeout);
 }
 
+bq25180_status_t BQ25180_WriteReg(uint8_t regAddr, uint8_t data, uint32_t timeout)
+{
+    return prvBQ25180_WriteReg(regAddr, data, 1, timeout);
+}
+
 
 
 /**

@@ -23,12 +23,16 @@ static configuration_param_t prvCONFIGURATION_DEFAULTS[] =
             .systemParam = 1
         },
         {
+            /* FW version is the MCU's own (compiled-in) value. Never persisted
+             * to or loaded from EEPROM, so a reflash always reports the running
+             * firmware version rather than a stale stored one. */
             .name = "FW_VER",
-            .value = "1.0.0",
+            .value = "2.0.1",
             .type = CONFIGURATION_PARAM_TYPE_STRING,
             .readOnly = 0,
             .defaultValue = 1,
-            .systemParam = 1
+            .systemParam = 1,
+            .noPersist = 1
         },
         {
             .name = "CH_CUR",
@@ -58,6 +62,16 @@ static configuration_param_t prvCONFIGURATION_DEFAULTS[] =
             .name = "MAX_CUR",
             .value = "5",
             .type = CONFIGURATION_PARAM_TYPE_INT,
+            .readOnly = 0,
+            .defaultValue = 1,
+            .systemParam = 1
+        },
+        {
+            /* Input-voltage calibration gain [V per ADC count].
+             * Default = Vref(3.3) / 4095 * divider(2) = 0.00161172. */
+            .name = "V_CAL",
+            .value = "0.00161172",
+            .type = CONFIGURATION_PARAM_TYPE_FLOAT,
             .readOnly = 0,
             .defaultValue = 1,
             .systemParam = 1

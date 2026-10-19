@@ -163,6 +163,12 @@ typedef uint8_t	drv_ain_adc_channel_t;
 typedef void (*drv_ain_adc_stream_callback)(uint32_t, uint8_t, uint32_t);
 
 /**
+ * @brief Single-sample callback: invoked from the ADC EOC ISR with the latest
+ *        12-bit conversion value (used for battery-voltage sampling).
+ */
+typedef void (*drv_ain_sample_callback_t)(uint16_t value);
+
+/**
  * @brief ADC channel configuration structure
  */
 typedef struct
@@ -331,6 +337,13 @@ drv_ain_status DRV_AIN_Stream_Enable(drv_ain_adc_t adc, uint32_t sampleSize);
  * @retval	::drv_ain_status
  */
 drv_ain_status DRV_AIN_Stream_RegisterCallback(drv_ain_adc_t adc, drv_ain_adc_stream_callback cbfunction);
+
+/**
+ * @brief	Register a single-sample callback invoked from the ADC EOC ISR
+ * @param	cb: callback receiving the latest 12-bit ADC value
+ * @retval	::drv_ain_status
+ */
+drv_ain_status DRV_AIN_RegisterSampleCallback(drv_ain_sample_callback_t cb);
 
 /**
  * @brief	Submit buffer address for DMA transfer
