@@ -23,6 +23,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "cmsis_os.h"
 #include "FreeRTOS.h"
@@ -34,9 +35,12 @@
 #include "logging.h"
 #include "charger.h"
 #include "control.h"
+#include "../SamplesStream/sstream.h"
+#include "control.h"
 #include "configuration.h"
 #include "drv_timer.h"
 #include "drv_gpio.h"
+#include "drv_usb_cdc.h"
 
 
 #include "system.h"
@@ -71,8 +75,8 @@ typedef struct
 	char						deviceName[CONF_SYSTEM_DEFAULT_DEVICE_NAME_MAX]; /*!< Device name storage */
 	system_rgb_value_t			rgbValue;      /**< Current RGB LED values */
 	system_opstate_t			opState;
-	charger_charging_state_t	chState;
 	uint8_t						eppPresent;
+	uint8_t						statusPushCounter;  /*!< divides the 100 ms tick down to ~1 s */
 }system_data_t;
 
 /**
@@ -283,20 +287,43 @@ static void prvSYSTEM_UpdateEPPPresentStatus(void)
 	}
 }
 
+/**
+ * @brief Push the charger STATUS register (STAT0) over the control status link
+ *        so the GUI updates live, without an explicit read. Called ~once a
+ *        second from the system service loop.
+ */
+#define SYSTEM_BQ25180_REG_STAT0   0x00
+static void prvSYSTEM_PushChargerStatus(void)
+{
+    uint8_t stat0 = 0;
+    char    msg[32];
+    int     len;
+
+    /* No explicit USB gate here: CONTROL_StatusLinkSendMessage already drops the
+     * message when no host is connected. Reading STAT0 is a quick local I2C op. */
+    if(CHARGER_GetRegContent(SYSTEM_BQ25180_REG_STAT0, &stat0, 1000) != CHARGER_STATUS_OK) return;
+
+    len = snprintf(msg, sizeof(msg), "charger status stat0 %u\r\n", (unsigned int)stat0);
+    if(len > 0) CONTROL_StatusLinkSendMessage(msg, CONTROL_STATUS_MESSAGE_TYPE_INFO, 50);
+}
+
 static void prvSYSTEM_ChargerStatusCallback(charger_charging_status_t status)
 {
     switch(status)
     {
         case CHARGER_CHARGING_STATUS_DONE:
             SYSTEM_SetOpState(SYSTEM_OPSTATE_CHARGING_DONE);
+            CONTROL_StatusLinkSendMessage("charger charging mode done\r\n", CONTROL_STATUS_MESSAGE_TYPE_INFO, 1000);
             break;
 
         case CHARGER_CHARGING_STATUS_CC:
             SYSTEM_SetOpState(SYSTEM_OPSTATE_CHARGING_CC);
+            CONTROL_StatusLinkSendMessage("charger charging mode cc\r\n", CONTROL_STATUS_MESSAGE_TYPE_INFO, 1000);
             break;
 
         case CHARGER_CHARGING_STATUS_CV:
             SYSTEM_SetOpState(SYSTEM_OPSTATE_CHARGING_CV);
+            CONTROL_StatusLinkSendMessage("charger charging mode cv\r\n", CONTROL_STATUS_MESSAGE_TYPE_INFO, 1000);
             break;
 
         default:
@@ -375,10 +402,20 @@ static void prvSYSTEM_Task(void *argument)
 
 			if(CHARGER_Init(2000) != CHARGER_STATUS_OK)
 			{
-				prvSYSTEM_DATA.state = SYSTEM_STATE_ERROR;
-				break;
+				/* The charger IC may not be reachable yet (e.g. input power not
+				 * applied). This must NOT halt the system: the charger service
+				 * retries on its own, and the rest of the system (USB control,
+				 * etc.) must come up regardless of charger availability. */
+				LOGGING_Write("System service", LOGGING_MSG_TYPE_WARNING,
+						"Charger not ready at boot, continuing without it (will retry)\r\n");
 			}
 			CHARGER_RegisterStatusCallback(prvSYSTEM_ChargerStatusCallback);
+
+				if(SSTREAM_Init() != SSTREAM_STATUS_OK)
+				{
+					prvSYSTEM_DATA.state = SYSTEM_STATE_ERROR;
+					break;
+				}
 
 			if(CONTROL_Init(2000) != CONTROL_STATUS_OK)
 			{
@@ -405,6 +442,13 @@ static void prvSYSTEM_Task(void *argument)
 			xTaskNotifyWait(0x0, 0xffffffff, &notifyValue, pdMS_TO_TICKS(100));
 
 			prvSYSTEM_UpdateEPPPresentStatus();
+
+			/* Push charger STATUS register ~every 1 s (10 * 100 ms). */
+			if(++prvSYSTEM_DATA.statusPushCounter >= 10)
+			{
+				prvSYSTEM_DATA.statusPushCounter = 0;
+				prvSYSTEM_PushChargerStatus();
+			}
 
 			switch(prvSYSTEM_DATA.opState)
 			{
@@ -467,15 +511,16 @@ static void prvSYSTEM_Task(void *argument)
 			}
 			if((notifyValue & SYSTEM_MASK_SET_CHARGING_STATE) != 0)
 			{
-				if(prvSYSTEM_DATA.chState == CHARGER_CHARGING_ENABLE)
+				/* Toggle based on the charger service's ACTUAL state (never a
+				 * local cached copy), so the button stays in sync even when
+				 * the state was changed over software. */
+				charger_charging_state_t current = CHARGER_CHARGING_DISABLE;
+				if(CHARGER_GetChargingState(&current, 1000) == CHARGER_STATUS_OK)
 				{
-					prvSYSTEM_DATA.chState = CHARGER_CHARGING_DISABLE;
-					CHARGER_SetChargingState(CHARGER_CHARGING_DISABLE, 1000);
-				}
-				else
-				{
-					prvSYSTEM_DATA.chState = CHARGER_CHARGING_ENABLE;
-					CHARGER_SetChargingState(CHARGER_CHARGING_ENABLE, 1000);
+					charger_charging_state_t next = (current == CHARGER_CHARGING_ENABLE)
+					                              ? CHARGER_CHARGING_DISABLE
+					                              : CHARGER_CHARGING_ENABLE;
+					CHARGER_SetChargingState(next, 1000);
 				}
 			}
 			break;

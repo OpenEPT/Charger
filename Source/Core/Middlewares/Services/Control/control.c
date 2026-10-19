@@ -30,6 +30,8 @@
 #include "CMParse/cmparse.h"
 //#include "dpcontrol.h"
 #include "charger.h"
+#include "configuration.h"
+#include "../SamplesStream/sstream.h"
 #include "drv_usb_cdc.h"
 
 /**
@@ -45,10 +47,17 @@
  * @defgroup CONTROL_PRIVATE_STRUCTURES Control service private structures defines
  * @{
  */
+/* Received-packet kinds dispatched from the RX ISR to the control task */
+#define CONTROL_RX_TYPE_TEXT		0U	/*!< ASCII command line (in pkt.data)            */
+#define CONTROL_RX_TYPE_BD_WRITE	1U	/*!< Binary BD write; payload in prvCONTROL_bdBuffer */
+
+#define CONTROL_BD_MAX_SIZE			128U	/*!< Charger EEPROM / board-data size in bytes */
+
 typedef struct
 {
 	uint8_t		data[CONTROL_BUFFER_SIZE];
 	uint32_t	length;
+	uint8_t		type;		/*!< CONTROL_RX_TYPE_* */
 } control_rx_packet_t;
 
 typedef struct
@@ -90,6 +99,10 @@ typedef struct
  */
 static control_data_t				prvCONTROL_DATA;
 static control_status_link_data_t	prvCONTROL_STATUS_LINK_DATA[CONTROL_STATUS_LINK_MAX_NO];
+/* Shared buffer for binary board-data (EEPROM) transfers. Filled by the RX ISR
+ * on a BD write frame, or by the BD read handler before sending the response.
+ * Serial is request/response, so there is no concurrent access. */
+static uint8_t						prvCONTROL_bdBuffer[CONTROL_BD_MAX_SIZE];
 /**
  * @}
  */
@@ -783,6 +796,61 @@ static void prvCONTROL_ChargingTermVoltageGet(const char* arguments, uint16_t ar
 }
 
 /**
+ * @brief	Set input-voltage calibration gain (V_CAL parameter, [V per ADC count]).
+ *          Stored as a string to preserve the full precision of the small gain;
+ *          persisted to EEPROM on "charger config store".
+ */
+static void prvCONTROL_ChargerVCalSet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	cmparse_value_t				value;
+	float						gain = 0.0f;
+	char						gainString[32];
+	memset(&value, 0, sizeof(cmparse_value_t));
+	if(CMPARSE_GetArgValue(arguments, argumentsLength, "value", &value) != CMPARSE_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to obtain V_CAL value\r\n");
+		return;
+	}
+
+	/* Parse then reformat with full precision (avoids any trailing-arg bytes and
+	 * the %.4f truncation of CONFIGURATION_SetParameter_Float). */
+	sscanf(value.value, "%f", &gain);
+	snprintf(gainString, sizeof(gainString), "%.8f", gain);
+
+	if(CONFIGURATION_SetParameter_String("V_CAL", gainString, 1000) == CONFIGURATION_STATUS_OK)
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "V_CAL set to %s\r\n", gainString);
+	}
+	else
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to set V_CAL\r\n");
+	}
+}
+
+/**
+ * @brief	Get input-voltage calibration gain (V_CAL parameter).
+ */
+static void prvCONTROL_ChargerVCalGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	char						vcalString[32];
+	uint8_t						defaultFlag = 0;
+
+	memset(vcalString, 0, sizeof(vcalString));
+	if(CONFIGURATION_GetParameter_String("V_CAL", vcalString, sizeof(vcalString), &defaultFlag) != CONFIGURATION_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get V_CAL\r\n");
+	}
+	else
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, vcalString, strlen(vcalString));
+	}
+}
+
+/**
  * @brief	Get charger register content
  * @param	arguments: arguments defined within control message
  * @param	argumentsLength: arguments message length
@@ -820,6 +888,248 @@ static void prvCONTROL_ChargerReadReg(const char* arguments, uint16_t argumentsL
 		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to read register current\r\n");
 		return;
 	}
+}
+
+/**
+ * @brief	Write a raw value to a charger (BQ25180) register
+ * @param	arguments: -reg=<hex addr> -value=<hex value>
+ * @retval	void
+ */
+static void prvCONTROL_ChargerWriteReg(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	cmparse_value_t				value;
+	unsigned int				regAddr;
+	unsigned int				regVal;
+
+	memset(&value, 0, sizeof(cmparse_value_t));
+	if(CMPARSE_GetArgValue(arguments, argumentsLength, "reg", &value) != CMPARSE_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to obtain register address\r\n");
+		return;
+	}
+	sscanf(value.value, "%x", &regAddr);
+
+	memset(&value, 0, sizeof(cmparse_value_t));
+	if(CMPARSE_GetArgValue(arguments, argumentsLength, "value", &value) != CMPARSE_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to obtain register value\r\n");
+		return;
+	}
+	sscanf(value.value, "%x", &regVal);
+
+	if(CHARGER_SetRegContent((uint8_t)regAddr, (uint8_t)regVal, 1000) == CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Reg 0x%x written with 0x%x\r\n", regAddr, regVal);
+	}
+	else
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to write register\r\n");
+		return;
+	}
+}
+
+/**
+ * @brief	Persist the current configuration (charging parameters) to EEPROM
+ */
+static void prvCONTROL_ChargerConfigStore(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	if(CONFIGURATION_StoreToFS(2000) == CONFIGURATION_STATUS_OK)
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Configuration stored to EEPROM\r\n");
+	}
+	else
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to store configuration\r\n");
+	}
+}
+
+/**
+ * @brief	Start streaming battery voltage to the host over USB
+ */
+static void prvCONTROL_VoltageStreamStart(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	if(SSTREAM_StartStream(1000) == SSTREAM_STATUS_OK)
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+	else
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+}
+
+/**
+ * @brief	Stop streaming battery voltage
+ */
+static void prvCONTROL_VoltageStreamStop(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	if(SSTREAM_StopStream(1000) == SSTREAM_STATUS_OK)
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+	else
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+}
+
+/**
+ * @brief	Get charger board-data (EEPROM) size in bytes (via the config service)
+ */
+static void prvCONTROL_ChargerBdSizeGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	char		buf[8];
+	uint32_t	len = sprintf(buf, "%u", (unsigned int)CONFIGURATION_CHARGER_GetEepromSize());
+	prvCONTROL_PrepareOkResponse(response, responseSize, buf, len);
+}
+
+/**
+ * @brief	Read the whole charger board-data and return it as a binary response
+ * 			frame: 0xA5 0xA5 'R' <sizeLo> <sizeHi> <data[size]>.
+ * 			No ASCII response is produced (responseSize left at 0).
+ */
+static void prvCONTROL_ChargerBdRead(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	static uint8_t frame[5U + CONTROL_BD_MAX_SIZE];
+	uint16_t       size = CONFIGURATION_CHARGER_GetEepromSize();
+
+	if(size > CONTROL_BD_MAX_SIZE) size = CONTROL_BD_MAX_SIZE;
+
+	if(CONFIGURATION_CHARGER_EepromRead(0, prvCONTROL_bdBuffer, (uint8_t)size, 2000) != CONFIGURATION_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "BD read failed\r\n");
+		return;
+	}
+
+	frame[0] = 0xA5;
+	frame[1] = 0xA5;
+	frame[2] = 'R';
+	frame[3] = (uint8_t)(size & 0xFF);
+	frame[4] = (uint8_t)((size >> 8) & 0xFF);
+	memcpy(&frame[5], prvCONTROL_bdBuffer, size);
+
+	if(DRV_USB_CDC_IsConnected())
+		DRV_USB_CDC_TransferData(frame, (uint16_t)(5U + size), 1000);
+
+	*responseSize = 0;   /* binary frame already sent */
+}
+
+/**
+ * @brief	Format (erase to 0xFF) the whole charger board-data via the config service
+ */
+static void prvCONTROL_ChargerBdFormat(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	if(CONFIGURATION_CHARGER_EepromFormat(5000) != CONFIGURATION_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "BD format failed\r\n");
+		return;
+	}
+
+	prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+}
+
+/**
+ * @brief	Set maximum charging current value
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargingMaxCurrentSet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	cmparse_value_t				value;
+	uint32_t					current;
+	memset(&value, 0, sizeof(cmparse_value_t));
+	if(CMPARSE_GetArgValue(arguments, argumentsLength, "value", &value) != CMPARSE_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to obtain maximum charging current value\r\n");
+		return;
+	}
+	sscanf(value.value, "%lu", &current);
+
+	if(CHARGER_SetChargingMaxCurrent(current, 1000) == CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareOkResponse(response, responseSize, "OK", 2);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Maximum charging current set to %lu\r\n", current);
+	}
+	else
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to set maximum charging current\r\n");
+		return;
+	}
+}
+/**
+ * @brief	Get maximum charging current value
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargingMaxCurrentGet(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	charger_max_charging_current_t	current;
+	char						currentString[10];
+	uint32_t					currentStringLength = 0;
+
+	if(CHARGER_GetChargingMaxCurrent(&current, 1000) != CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get maximum charging current\r\n");
+	}
+	else
+	{
+		memset(currentString, 0, sizeof(currentString));
+		currentStringLength = sprintf(currentString, "%u", (unsigned int)current);
+		prvCONTROL_PrepareOkResponse(response, responseSize, currentString, currentStringLength);
+	}
+}
+/**
+ * @brief	Get charger firmware version
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargerGetFWVersion(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	char						buffer[CONF_CONFIGURATION_MAX_PARAM_VALUESIZE];
+
+	if(CHARGER_GetFwVersion(buffer, sizeof(buffer), 1000) != CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get charger FW version\r\n");
+		return;
+	}
+
+	prvCONTROL_PrepareOkResponse(response, responseSize, buffer, strlen(buffer));
+	LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Charger FW version read: %s\r\n", buffer);
+}
+/**
+ * @brief	Get charger hardware serial number
+ * @param	arguments: arguments defined within control message
+ * @param	argumentsLength: arguments message length
+ * @param	response: response message content
+ * @param	responseSize: length of response message
+ * @retval	void
+ */
+static void prvCONTROL_ChargerGetHWSerial(const char* arguments, uint16_t argumentsLength, char* response, uint16_t* responseSize)
+{
+	char						buffer[CONF_CONFIGURATION_MAX_PARAM_VALUESIZE];
+
+	if(CHARGER_GetSerial(buffer, sizeof(buffer), 1000) != CHARGER_STATUS_OK)
+	{
+		prvCONTROL_PrepareErrorResponse(response, responseSize);
+		LOGGING_Write("Control Service", LOGGING_MSG_TYPE_ERROR, "Unable to get charger HW serial\r\n");
+		return;
+	}
+
+	prvCONTROL_PrepareOkResponse(response, responseSize, buffer, strlen(buffer));
+	LOGGING_Write("Control Service", LOGGING_MSG_TYPE_INFO, "Charger HW serial read: %s\r\n", buffer);
 }
 
 /**
@@ -2178,20 +2488,112 @@ static void prvCONTROL_StatusLinkSendMessage(const char* arguments, uint16_t arg
  * 			len: length of data
  * @retval	void
  */
+/* RX framing states. ASCII commands are line-assembled (terminated by CR/LF).
+ * A binary BD-write frame "0xA5 0xA5 'W' <sizeLo> <sizeHi> <data[size]>" is
+ * detected by the 0xA5 0xA5 prefix and streamed straight into prvCONTROL_bdBuffer. */
+enum {
+	RXS_TEXT = 0,
+	RXS_MARK2,     /* got one 0xA5                */
+	RXS_OP,        /* got 0xA5 0xA5, expect op    */
+	RXS_SZ0,
+	RXS_SZ1,
+	RXS_DATA
+};
+
 static void prvCONTROL_RxCallback(uint8_t* data, uint32_t len)
 {
-	control_rx_packet_t pkt;
+	static char     lineBuf[CONTROL_BUFFER_SIZE];
+	static uint16_t lineLen   = 0;
+
+	static uint8_t  rxState   = RXS_TEXT;
+	static uint8_t  binOp     = 0;
+	static uint16_t binSize   = 0;
+	static uint16_t binRecv   = 0;
+
 	BaseType_t higherPriorityTaskWoken = pdFALSE;
 
-	if(len == 0 || len > CONTROL_BUFFER_SIZE){
-		return;
+	if(len == 0) return;
+
+	for(uint32_t i = 0; i < len; i++)
+	{
+		uint8_t c = data[i];
+
+		switch(rxState)
+		{
+		case RXS_TEXT:
+			if(lineLen == 0 && c == 0xA5)
+			{
+				rxState = RXS_MARK2;                 /* possible binary frame */
+			}
+			else if(c == '\r' || c == '\n')
+			{
+				if(lineLen > 0)
+				{
+					control_rx_packet_t pkt;
+					memset(&pkt, 0, sizeof(control_rx_packet_t));
+					memcpy(pkt.data, lineBuf, lineLen);
+					pkt.length = lineLen;
+					pkt.type   = CONTROL_RX_TYPE_TEXT;
+					lineLen = 0;
+					xQueueSendFromISR(prvCONTROL_DATA.rxQueue, &pkt, &higherPriorityTaskWoken);
+				}
+			}
+			else if(c == '\b' || c == 0x7F)
+			{
+				if(lineLen > 0) lineLen--;
+			}
+			else if(lineLen < CONTROL_BUFFER_SIZE)
+			{
+				lineBuf[lineLen++] = (char)c;
+			}
+			else
+			{
+				lineLen = 0;                         /* overflow: discard line */
+			}
+			break;
+
+		case RXS_MARK2:
+			rxState = (c == 0xA5) ? RXS_OP : RXS_TEXT;   /* second marker or false start */
+			break;
+
+		case RXS_OP:
+			binOp   = c;
+			rxState = RXS_SZ0;
+			break;
+
+		case RXS_SZ0:
+			binSize = c;
+			rxState = RXS_SZ1;
+			break;
+
+		case RXS_SZ1:
+			binSize |= (uint16_t)((uint16_t)c << 8);
+			binRecv  = 0;
+			if(binOp == 'W' && binSize > 0 && binSize <= CONTROL_BD_MAX_SIZE)
+				rxState = RXS_DATA;
+			else
+				rxState = RXS_TEXT;                  /* unknown/invalid frame */
+			break;
+
+		case RXS_DATA:
+			prvCONTROL_bdBuffer[binRecv++] = c;
+			if(binRecv >= binSize)
+			{
+				control_rx_packet_t pkt;
+				memset(&pkt, 0, sizeof(control_rx_packet_t));
+				pkt.length = binSize;                /* data already in prvCONTROL_bdBuffer */
+				pkt.type   = CONTROL_RX_TYPE_BD_WRITE;
+				xQueueSendFromISR(prvCONTROL_DATA.rxQueue, &pkt, &higherPriorityTaskWoken);
+				rxState = RXS_TEXT;
+			}
+			break;
+
+		default:
+			rxState = RXS_TEXT;
+			break;
+		}
 	}
 
-	memset(&pkt, 0, sizeof(control_rx_packet_t));
-	memcpy(pkt.data, data, len);
-	pkt.length = len;
-
-	xQueueSendFromISR(prvCONTROL_DATA.rxQueue, &pkt, &higherPriorityTaskWoken);
 	portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
@@ -2217,13 +2619,25 @@ static void prvCONTROL_TaskFunc(void* pvParameter)
 			continue;
 		}
 
-		memset(prvCONTROL_DATA.requestBuffer, 0, CONTROL_BUFFER_SIZE);
 		memset(prvCONTROL_DATA.responseBuffer, 0, CONTROL_BUFFER_SIZE);
 		prvCONTROL_DATA.responseBufferSize = 0;
 
-		memcpy(prvCONTROL_DATA.requestBuffer, pkt.data, pkt.length);
-
-		CMPARSE_Execute(prvCONTROL_DATA.requestBuffer, prvCONTROL_DATA.responseBuffer, &prvCONTROL_DATA.responseBufferSize);
+		if(pkt.type == CONTROL_RX_TYPE_BD_WRITE)
+		{
+			/* Binary board-data write: payload already streamed into
+			 * prvCONTROL_bdBuffer by the RX ISR. The configuration service
+			 * performs the actual EEPROM write. */
+			if(CONFIGURATION_CHARGER_EepromWrite(0, prvCONTROL_bdBuffer, (uint8_t)pkt.length, 2000) == CONFIGURATION_STATUS_OK)
+				prvCONTROL_PrepareOkResponse(prvCONTROL_DATA.responseBuffer, &prvCONTROL_DATA.responseBufferSize, "OK", 2);
+			else
+				prvCONTROL_PrepareErrorResponse(prvCONTROL_DATA.responseBuffer, &prvCONTROL_DATA.responseBufferSize);
+		}
+		else
+		{
+			memset(prvCONTROL_DATA.requestBuffer, 0, CONTROL_BUFFER_SIZE);
+			memcpy(prvCONTROL_DATA.requestBuffer, pkt.data, pkt.length);
+			CMPARSE_Execute(prvCONTROL_DATA.requestBuffer, prvCONTROL_DATA.responseBuffer, &prvCONTROL_DATA.responseBufferSize);
+		}
 
 		if(prvCONTROL_DATA.responseBufferSize > 0 && DRV_USB_CDC_IsConnected())
 		{
@@ -2275,7 +2689,7 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 	prvCONTROL_DATA.guard = xSemaphoreCreateMutex();
 	if(prvCONTROL_DATA.guard == NULL) return CONTROL_STATUS_ERROR;
 
-	prvCONTROL_DATA.rxQueue = xQueueCreate(4, sizeof(control_rx_packet_t));
+	prvCONTROL_DATA.rxQueue = xQueueCreate(30, sizeof(control_rx_packet_t));
 	if(prvCONTROL_DATA.rxQueue == NULL) return CONTROL_STATUS_ERROR;
 
 	if(xTaskCreate(
@@ -2313,9 +2727,22 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 	CMPARSE_AddCommand("charger charging current get",  	prvCONTROL_ChargingCurrentGet);
 	CMPARSE_AddCommand("charger charging termcurrent set",  prvCONTROL_ChargingTermCurrentSet);
 	CMPARSE_AddCommand("charger charging termcurrent get",  prvCONTROL_ChargingTermCurrentGet);
+	CMPARSE_AddCommand("charger charging maxcurrent set",  	prvCONTROL_ChargingMaxCurrentSet);
+	CMPARSE_AddCommand("charger charging maxcurrent get",  	prvCONTROL_ChargingMaxCurrentGet);
 	CMPARSE_AddCommand("charger charging termvoltage set",  prvCONTROL_ChargingTermVoltageSet);
 	CMPARSE_AddCommand("charger charging termvoltage get",  prvCONTROL_ChargingTermVoltageGet);
 	CMPARSE_AddCommand("charger reg read",  				prvCONTROL_ChargerReadReg);
+	CMPARSE_AddCommand("charger reg write",  				prvCONTROL_ChargerWriteReg);
+	CMPARSE_AddCommand("charger bd size get",  				prvCONTROL_ChargerBdSizeGet);
+	CMPARSE_AddCommand("charger bd read",  					prvCONTROL_ChargerBdRead);
+	CMPARSE_AddCommand("charger bd format",  				prvCONTROL_ChargerBdFormat);
+	CMPARSE_AddCommand("charger config store",  			prvCONTROL_ChargerConfigStore);
+	CMPARSE_AddCommand("charger vcal set",  				prvCONTROL_ChargerVCalSet);
+	CMPARSE_AddCommand("charger vcal get",  				prvCONTROL_ChargerVCalGet);
+	CMPARSE_AddCommand("charger voltage stream start",  	prvCONTROL_VoltageStreamStart);
+	CMPARSE_AddCommand("charger voltage stream stop",  		prvCONTROL_VoltageStreamStop);
+	CMPARSE_AddCommand("charger fwversion get",  			prvCONTROL_ChargerGetFWVersion);
+	CMPARSE_AddCommand("charger hwserial get",  			prvCONTROL_ChargerGetHWSerial);
 
 
 	if(xSemaphoreTake(prvCONTROL_DATA.initSig, pdMS_TO_TICKS(initTimeout)) != pdTRUE) return CONTROL_STATUS_ERROR;
@@ -2403,7 +2830,11 @@ control_status_t 	CONTROL_Init(uint32_t initTimeout){
 //
 control_status_t 	CONTROL_StatusLinkSendMessage(const char* message, contol_status_message_type_t type, uint32_t timeout)
 {
-	if(prvCONTROL_STATUS_LINK_DATA[0].linkState != CONTROL_LINK_STATE_UP) return CONTROL_STATUS_ERROR;
+	/* Gate on the actual USB connection, not on linkState: linkState only turns
+	 * UP inside the status-link task after it dequeues a message, so gating the
+	 * enqueue on linkState==UP would be a chicken-and-egg deadlock (nothing ever
+	 * gets queued, so the task never runs, so linkState never goes UP). */
+	if(!DRV_USB_CDC_IsConnected()) return CONTROL_STATUS_ERROR;
 	uint32_t messageSize = strlen(message);
 	control_status_message_t messageData;
 	if(messageSize > CONTROL_BUFFER_SIZE) return CONTROL_STATUS_ERROR;

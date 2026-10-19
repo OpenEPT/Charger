@@ -31,6 +31,9 @@
 #define CONFIGURATION_MASK_SAVE_TO_FS   			0x00000004
 #define CONFIGURATION_MASK_CHARGER_TEST_BD			0x00000008	/*!< Request charger board EEPROM presence test */
 #define CONFIGURATION_MASK_CHARGER_UPDATE_FROM_BD	0x00000010	/*!< Request charger configuration update from EEPROM */
+#define CONFIGURATION_MASK_CHARGER_EEPROM_READ		0x00000020	/*!< Request raw charger EEPROM read  */
+#define CONFIGURATION_MASK_CHARGER_EEPROM_WRITE		0x00000040	/*!< Request raw charger EEPROM write */
+#define CONFIGURATION_MASK_CHARGER_EEPROM_FORMAT	0x00000080	/*!< Request charger EEPROM format (erase to 0xFF) */
 /**
  * @brief Configuration internal data structure
  */
@@ -44,6 +47,12 @@ typedef struct
     uint32_t              paramsCount;
 
     configuration_param_t lastParam;
+
+    /* Raw charger EEPROM access, serviced in the task context */
+    uint8_t               chargerEepromBuf[AT24CS01_MEMORY_SIZE_BYTES];
+    uint8_t               chargerEepromOffset;
+    uint8_t               chargerEepromSize;
+    uint8_t               chargerEepromResult;   /* 1 = last op OK, 0 = failed */
 
 } configuration_data_t;
 
@@ -267,6 +276,10 @@ static void prvCONFIGURATION_UpdateSystemParamFromBD(void)
                 if(param->systemParam == 0U)
                     continue;
 
+                /* MCU-sourced params (e.g. FW_VER) are never loaded from EEPROM. */
+                if(param->noPersist)
+                    continue;
+
                 if(strcmp(param->name, key) == 0)
                 {
                     size_t len = strnlen(value, CONFIGURATION_MAX_PARAM_VALUESIZE);
@@ -336,7 +349,7 @@ static void prvCONFIGURATION_Task(void *pvParameters)
             break;
 
         case CONFIGURATION_STATE_SERVICE:
-
+        {
             int32_t value;
 
             /* Wait for a configuration request. */
@@ -382,7 +395,95 @@ static void prvCONFIGURATION_Task(void *pvParameters)
                 xSemaphoreGive(prvCONFIGURATION_DATA.initSig);
             }
 
+            /* Raw charger EEPROM read (into the internal buffer). */
+            if(value & CONFIGURATION_MASK_CHARGER_EEPROM_READ)
+            {
+                prvCONFIGURATION_DATA.chargerEepromResult =
+                    (AT24CS01_Read(prvCONFIGURATION_DATA.chargerEepromOffset,
+                                   prvCONFIGURATION_DATA.chargerEepromBuf,
+                                   prvCONFIGURATION_DATA.chargerEepromSize, 1000) == AT24CS01_STATUS_OK) ? 1U : 0U;
+                xSemaphoreGive(prvCONFIGURATION_DATA.initSig);
+            }
+
+            /* Raw charger EEPROM write (from the internal buffer). */
+            if(value & CONFIGURATION_MASK_CHARGER_EEPROM_WRITE)
+            {
+                prvCONFIGURATION_DATA.chargerEepromResult =
+                    (AT24CS01_Write(prvCONFIGURATION_DATA.chargerEepromOffset,
+                                    prvCONFIGURATION_DATA.chargerEepromBuf,
+                                    prvCONFIGURATION_DATA.chargerEepromSize, 1000) == AT24CS01_STATUS_OK) ? 1U : 0U;
+                xSemaphoreGive(prvCONFIGURATION_DATA.initSig);
+            }
+
+            /* Charger EEPROM format (erase whole device to 0xFF). */
+            if(value & CONFIGURATION_MASK_CHARGER_EEPROM_FORMAT)
+            {
+                uint8_t page[AT24CS01_PAGE_SIZE_BYTES];
+                memset(page, 0xFF, sizeof(page));
+                prvCONFIGURATION_DATA.chargerEepromResult = 1U;
+                for(uint32_t addr = 0; addr < AT24CS01_MEMORY_SIZE_BYTES; addr += AT24CS01_PAGE_SIZE_BYTES)
+                {
+                    if(AT24CS01_Write((uint8_t)addr, page, AT24CS01_PAGE_SIZE_BYTES, 1000) != AT24CS01_STATUS_OK)
+                    {
+                        prvCONFIGURATION_DATA.chargerEepromResult = 0U;
+                        break;
+                    }
+                }
+                xSemaphoreGive(prvCONFIGURATION_DATA.initSig);
+            }
+
+            /* Persist the whole parameter set to the charger EEPROM (board-data).
+             * All parameters here are system parameters and are reloaded on boot
+             * by the BD read, so serialize ALL of them (not only non-system). */
+            if(value & CONFIGURATION_MASK_SAVE_TO_FS)
+            {
+                char     saveBuf[AT24CS01_MEMORY_SIZE_BYTES];
+                uint8_t  image[AT24CS01_MEMORY_SIZE_BYTES];
+                uint32_t off = 0;
+                uint32_t magic = 0xA5A6A7A8U;
+                uint32_t payloadSize;
+
+                if(xSemaphoreTake(prvCONFIGURATION_DATA.guard, portMAX_DELAY) == pdTRUE)
+                {
+                    memset(saveBuf, 0, sizeof(saveBuf));
+                    for(uint32_t i = 0; i < prvCONFIGURATION_DATA.paramsCount; i++)
+                    {
+                        configuration_param_t* param = &prvCONFIGURATION_DATA.params[i];
+                        if(param->name == NULL || param->value == NULL) continue;
+                        if(param->noPersist) continue;   /* MCU-sourced, e.g. FW_VER */
+
+                        int written = snprintf(&saveBuf[off], sizeof(saveBuf) - off,
+                                               "%s:%s\r\n", param->name, param->value);
+                        if(written <= 0 || (off + (uint32_t)written) >= sizeof(saveBuf)) break;
+                        off += (uint32_t)written;
+                    }
+                    payloadSize = off;
+
+                    if((CONF_CONFIGURATION_HEADER_SIZE + payloadSize) <= AT24CS01_MEMORY_SIZE_BYTES)
+                    {
+                        memset(image, 0, sizeof(image));
+                        memcpy(&image[0], &magic, sizeof(magic));
+                        memcpy(&image[4], &payloadSize, sizeof(payloadSize));
+                        memcpy(&image[CONF_CONFIGURATION_HEADER_SIZE], saveBuf, payloadSize);
+
+                        if(AT24CS01_Write(0, image, AT24CS01_MEMORY_SIZE_BYTES, 1000) != AT24CS01_STATUS_OK)
+                            LOGGING_Write("CONFIG", LOGGING_MSG_TYPE_ERROR, "Configuration EEPROM write failed\r\n");
+                        else
+                            LOGGING_Write("CONFIG", LOGGING_MSG_TYPE_INFO, "Configuration stored to EEPROM\r\n");
+                    }
+                    else
+                    {
+                        LOGGING_Write("CONFIG", LOGGING_MSG_TYPE_ERROR, "Configuration does not fit EEPROM\r\n");
+                    }
+
+                    xSemaphoreGive(prvCONFIGURATION_DATA.guard);
+                }
+
+                xSemaphoreGive(prvCONFIGURATION_DATA.initSig);
+            }
+
             break;
+        }
 
         case CONFIGURATION_STATE_ERROR:
 
@@ -586,6 +687,57 @@ configuration_status_t CONFIGURATION_StoreToFS(uint32_t timeout)
     if(xTaskNotify(prvCONFIGURATION_DATA.taskHandle, CONFIGURATION_MASK_SAVE_TO_FS, eSetBits) != pdTRUE) return CONFIGURATION_STATUS_ERROR;
     if(xSemaphoreTake(prvCONFIGURATION_DATA.initSig, pdMS_TO_TICKS(timeout)) != pdPASS) return CONFIGURATION_STATUS_ERROR;
     return CONFIGURATION_STATUS_OK;
+}
+
+uint16_t CONFIGURATION_CHARGER_GetEepromSize(void)
+{
+    return (uint16_t)AT24CS01_MEMORY_SIZE_BYTES;
+}
+
+configuration_status_t CONFIGURATION_CHARGER_EepromRead(uint8_t offset, uint8_t* data, uint8_t size, uint32_t timeout)
+{
+    if(data == NULL || size == 0U || ((uint32_t)offset + size) > AT24CS01_MEMORY_SIZE_BYTES)
+        return CONFIGURATION_STATUS_ERROR;
+
+    if(xSemaphoreTake(prvCONFIGURATION_DATA.guard, pdMS_TO_TICKS(timeout)) != pdTRUE) return CONFIGURATION_STATUS_ERROR;
+    prvCONFIGURATION_DATA.chargerEepromOffset = offset;
+    prvCONFIGURATION_DATA.chargerEepromSize   = size;
+    xSemaphoreGive(prvCONFIGURATION_DATA.guard);
+
+    if(xTaskNotify(prvCONFIGURATION_DATA.taskHandle, CONFIGURATION_MASK_CHARGER_EEPROM_READ, eSetBits) != pdTRUE) return CONFIGURATION_STATUS_ERROR;
+    if(xSemaphoreTake(prvCONFIGURATION_DATA.initSig, pdMS_TO_TICKS(timeout)) != pdPASS) return CONFIGURATION_STATUS_ERROR;
+
+    if(xSemaphoreTake(prvCONFIGURATION_DATA.guard, pdMS_TO_TICKS(timeout)) != pdTRUE) return CONFIGURATION_STATUS_ERROR;
+    uint8_t ok = prvCONFIGURATION_DATA.chargerEepromResult;
+    if(ok) memcpy(data, prvCONFIGURATION_DATA.chargerEepromBuf, size);
+    xSemaphoreGive(prvCONFIGURATION_DATA.guard);
+
+    return ok ? CONFIGURATION_STATUS_OK : CONFIGURATION_STATUS_ERROR;
+}
+
+configuration_status_t CONFIGURATION_CHARGER_EepromWrite(uint8_t offset, const uint8_t* data, uint8_t size, uint32_t timeout)
+{
+    if(data == NULL || size == 0U || ((uint32_t)offset + size) > AT24CS01_MEMORY_SIZE_BYTES)
+        return CONFIGURATION_STATUS_ERROR;
+
+    if(xSemaphoreTake(prvCONFIGURATION_DATA.guard, pdMS_TO_TICKS(timeout)) != pdTRUE) return CONFIGURATION_STATUS_ERROR;
+    prvCONFIGURATION_DATA.chargerEepromOffset = offset;
+    prvCONFIGURATION_DATA.chargerEepromSize   = size;
+    memcpy(prvCONFIGURATION_DATA.chargerEepromBuf, data, size);
+    xSemaphoreGive(prvCONFIGURATION_DATA.guard);
+
+    if(xTaskNotify(prvCONFIGURATION_DATA.taskHandle, CONFIGURATION_MASK_CHARGER_EEPROM_WRITE, eSetBits) != pdTRUE) return CONFIGURATION_STATUS_ERROR;
+    if(xSemaphoreTake(prvCONFIGURATION_DATA.initSig, pdMS_TO_TICKS(timeout)) != pdPASS) return CONFIGURATION_STATUS_ERROR;
+
+    return prvCONFIGURATION_DATA.chargerEepromResult ? CONFIGURATION_STATUS_OK : CONFIGURATION_STATUS_ERROR;
+}
+
+configuration_status_t CONFIGURATION_CHARGER_EepromFormat(uint32_t timeout)
+{
+    if(xTaskNotify(prvCONFIGURATION_DATA.taskHandle, CONFIGURATION_MASK_CHARGER_EEPROM_FORMAT, eSetBits) != pdTRUE) return CONFIGURATION_STATUS_ERROR;
+    if(xSemaphoreTake(prvCONFIGURATION_DATA.initSig, pdMS_TO_TICKS(timeout)) != pdPASS) return CONFIGURATION_STATUS_ERROR;
+
+    return prvCONFIGURATION_DATA.chargerEepromResult ? CONFIGURATION_STATUS_OK : CONFIGURATION_STATUS_ERROR;
 }
 configuration_status_t CONFIGURATION_UpdateFromBD(uint32_t timeout)
 {

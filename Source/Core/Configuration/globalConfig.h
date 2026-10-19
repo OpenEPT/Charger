@@ -80,7 +80,7 @@
 #define CONF_CONTROL_TASK_NAME						"Control Task"
 #define	CONF_CONTROL_STACK_SIZE						256
 #define	CONF_CONTROL_PRIO							3
-#define	CONF_CONTROL_BUFFER_SIZE					32 //TODO 512 too large?s
+#define	CONF_CONTROL_BUFFER_SIZE					64 /*!< Control request/response buffer size (fits full 'charger charging ... set -value=' commands) */
 #define	CONF_CONTROL_RESPONSE_OK_STATUS_MSG			"STATUS"
 #define	CONF_CONTROL_RESPONSE_ERROR_STATUS_MSG		"ERROR"
 #define	CONF_CONTROL_STATUS_LINK_MAX_NO				1
