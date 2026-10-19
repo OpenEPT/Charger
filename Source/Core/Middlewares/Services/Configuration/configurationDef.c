@@ -27,7 +27,7 @@ static configuration_param_t prvCONFIGURATION_DEFAULTS[] =
              * to or loaded from EEPROM, so a reflash always reports the running
              * firmware version rather than a stale stored one. */
             .name = "FW_VER",
-            .value = "2.0.0",
+            .value = "2.0.1",
             .type = CONFIGURATION_PARAM_TYPE_STRING,
             .readOnly = 0,
             .defaultValue = 1,
